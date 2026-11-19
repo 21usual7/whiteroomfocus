@@ -35,3 +35,9 @@ Owner corrected the published repository to https://github.com/21usual7/whiteroo
 The owner requested a repository-local supervisor. The initial M1 queue preserves the existing desktop acceptance and owner checkpoint gates. Product implementation and research remain outside this change.
 
 All 16 supervisor tests passed using mocked Codex and temporary Git repositories. The real offline bubblewrap suite passed Cargo check, Clippy, one CLI unit test, 16 pilot tests, JavaScript syntax and the browser consent fixture. Clippy reported four existing style warnings. No live Codex calls were made. The supervisor changes are available in the existing checkout for owner review; the checkout still contains pre-existing uncommitted files. M1 desktop acceptance remains pending.
+
+## 2026-11-19 — M1 closure
+
+The owner accepted the real-window WebKitGTK checks and local Git checkpoint `31b699c` in D6. Keyboard navigation, the focus ring after arrow selection and focus restoration after each revocation passed at 360×640 and 900×640. The current UI was unchanged from the reviewed UI. Both M1 items are in the completed ledger. The supervisor queue is empty while the next milestone awaits owner approval.
+
+All 17 supervisor tests passed. The launcher reported M1 closed, returned code 3 for `run` and `--status`, and made zero Codex calls.

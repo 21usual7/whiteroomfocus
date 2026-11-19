@@ -44,8 +44,9 @@ SENSITIVE = {
 LIMITS = {"minutes": 120, "iterations": 20, "attempts": 3, "executions": 100, "tokens": 2000000}
 
 
-def load_policy(repo):
-    approval = read_json(repo / APPROVAL)
+def load_policy(repo, approval=None):
+    if approval is None:
+        approval = read_json(repo / APPROVAL)
     plan = read_json(repo / PLAN)
     if approval.get("status") != "approved_for_implementation":
         raise Stop(f"Этап ожидает одобрения владельца ({approval.get('status')}).")
@@ -432,7 +433,15 @@ def main(argv=None):
             code, log = validate(repo, repo, 1200)
             print(log)
             return code
-        plan, policy_id = load_policy(repo)
+        approval = read_json(repo / APPROVAL)
+        if approval.get("status") == "pending_owner_approval":
+            if completed := approval.get("completed_milestone"):
+                print(f"Завершённый этап: {completed}.")
+            if checkpoint := approval.get("git_checkpoint"):
+                print(f"Локальный Git checkpoint: {checkpoint[:12]}.")
+            print("Следующий этап ждёт одобрения владельца.")
+            return 0 if command == "report" else 3
+        plan, policy_id = load_policy(repo, approval)
         storage = repo / ".supervisor"
         root = storage / f"{plan['milestone']}-{policy_id}"
         if command == "report":

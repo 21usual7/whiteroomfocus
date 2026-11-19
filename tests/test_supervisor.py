@@ -195,6 +195,29 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
             self.assertIn("подтверждение владельца", result.stdout + result.stderr)
 
+    def test_closed_milestone_is_reported_while_next_milestone_awaits_approval(self):
+        root = Path(supervisor.__file__).resolve().parents[1]
+        for name in supervisor.PROTECTED:
+            if name.startswith("scripts/"):
+                self.write(name, (root / name).read_text())
+        self.supervisor([task()])
+        self.write(supervisor.APPROVAL, json.dumps({
+            "status": "pending_owner_approval",
+            "completed_milestone": "M1",
+            "git_checkpoint": self.head,
+        }))
+        self.git("add", supervisor.APPROVAL)
+        self.git("commit", "-qm", "Close milestone")
+        for arguments, exit_code in ((["--status"], 3), (["run"], 3), (["report"], 0)):
+            result = subprocess.run(
+                ["bash", "scripts/supervise", *arguments], cwd=self.repo, text=True,
+                capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, exit_code, result.stdout + result.stderr)
+            self.assertIn("Завершённый этап: M1", result.stdout)
+            self.assertIn(self.head[:12], result.stdout)
+            self.assertIn("Следующий этап ждёт одобрения владельца", result.stdout)
+
     def test_policy_edit_by_builder_is_blocked(self):
         runner = self.supervisor([task()])
 

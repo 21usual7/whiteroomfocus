@@ -1,8 +1,8 @@
 {
   "version": 1,
   "milestone": "m1",
-  "phase": "M1_validation",
-  "decision": "D4",
+  "phase": "M1_closed",
+  "decision": "D6",
   "limits": {
     "minutes": 20,
     "iterations": 3,
@@ -10,25 +10,5 @@
     "executions": 8,
     "tokens": 200000
   },
-  "tasks": [
-    {
-      "id": "desktop-acceptance",
-      "kind": "owner",
-      "title": "Подтвердить приёмку M1 в реальном окне WebKitGTK",
-      "criteria": [
-        "Проверены клавиатура, возврат фокуса и стрелки выбора режима при 360 и 900 px.",
-        "Результаты по текущей сборке записаны в журнале."
-      ],
-      "paths": []
-    },
-    {
-      "id": "m1-owner-checkpoint",
-      "kind": "owner",
-      "title": "Проверить и сохранить уже подготовленные изменения M1",
-      "criteria": [
-        "После приёмки проверены существующие изменения и создан локальный Git checkpoint."
-      ],
-      "paths": []
-    }
-  ]
+  "tasks": []
 }

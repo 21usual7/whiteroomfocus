@@ -1,12 +1,11 @@
-# Current milestone
+# M1 closed
 
-The owner approved M1 on 2026-11-19.
+The owner confirmed M1 closure on 2026-11-19 in D6. The two remaining acceptance items are complete. The next milestone awaits approval.
 
-## Resume here
+## Completion evidence
 
-Implementation and fixture validation are complete. The remaining approved work is desktop acceptance and the local Git checkpoint. Use the existing [Claude Code assignment](../docs/prompt-claude-m1.md) for the 360/900 px WebKitGTK checks. Preserve its ownership of theme.css. Close M1 after recording observed results on a supported desktop and checkpointing the reviewed changes in an accessible checkout.
-
-The [first desktop report](../docs/claude-m1-review.md) covers the real 900 px session lifecycle and offscreen layout at both widths. Codex rebuilt the corrected styles and restored keyboard focus after source revocation. The Claude assignment now specifies the remaining real-window checks.
+- Keyboard navigation, the focus ring after arrow selection, and focus after revoking each source passed in real WebKitGTK windows at 360×640 and 900×640. [Desktop report](../docs/claude-m1-review.md#повторная-проверка-после-пересборки-codex)
+- The owner accepted local Git checkpoint `31b699c`. The checked-out UI matched the reviewed UI when the checkpoint was confirmed.
 
 ## Acceptance criteria
 
@@ -16,4 +15,4 @@ The [first desktop report](../docs/claude-m1-review.md) covers the real 900 px s
 4. Bound default review data to the selected session. Confirm that historical or later activity cannot silently enter the preview. Compare every user-derived field of a recorded outbound request with its preview, including prior titles and retry details. Declining must yield zero calls. Use fixtures throughout.
 5. Run regression checks for existing sessions, export, tracking and site blocking. Verify keyboard operation and narrow layout with a temporary profile on the supported desktop. Record any unavailable environments explicitly.
 
-Exit requires passing behavior checks, independent review, a documented data-flow update and a local Git checkpoint when writable repository metadata is available. Wider retention/deletion policy and paid provider validation have separate approval boundaries.
+The milestone closed with passing behavior checks, independent desktop review, the documented data flow and a local Git checkpoint. Wider retention and deletion policy and paid provider validation have separate approval boundaries.
