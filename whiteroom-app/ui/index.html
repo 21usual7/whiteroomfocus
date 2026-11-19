@@ -6,27 +6,48 @@
   <title>WHITE ROOM</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="theme.css">
+  <script src="field.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
+  <canvas id="field" aria-hidden="true"></canvas>
   <main>
     <header>
-      <h1>WHITE ROOM</h1>
+      <h1><span class="mark" aria-hidden="true"></span>WHITE ROOM</h1>
       <nav aria-label="Разделы">
         <button type="button" aria-controls="study" aria-pressed="true">Фокус</button>
         <button type="button" aria-controls="reviews" aria-pressed="false">Повторения</button>
         <button type="button" aria-controls="practice" aria-pressed="false">Практика</button>
         <button type="button" aria-controls="sites" aria-pressed="false">Сайты</button>
       </nav>
+      <button type="button" id="motion" class="motion">Фон: живой</button>
     </header>
     <section id="study" aria-label="Сессия">
-      <h2 class="section-title">Кибербезопасность</h2>
-      <fieldset id="study-controls">
+      <div class="stage">
+        <div class="deck">
+          <p class="eyebrow">Кибербезопасность · лаборатория</p>
+          <h2 class="section-title">Войди<br>в комнату.</h2>
+          <p class="lede">Выбери режим и направление. Внутри останутся тема, время и только те источники, которые ты разрешил.</p>
+          <button type="button" id="open-setup" class="enter"><span class="aperture" aria-hidden="true"></span>Войти в комнату</button>
+          <dl id="readouts" class="readouts"></dl>
+          <p class="legend">Декоративная модель, не твоя мозговая активность. Шесть областей — режимы фокуса, их яркость — минуты в последних сессиях. Импульсов больше, когда есть карточки к повторению. Верный ответ усиливает связи до закрытия окна.</p>
+        </div>
+        <fieldset id="study-controls">
         <form id="start-study" hidden>
+          <div class="protocol-head">
+            <p class="eyebrow">Протокол сессии</p>
+            <button type="button" id="close-setup">Назад</button>
+          </div>
           <fieldset><legend>Режим фокуса</legend><div id="focus-modes"></div></fieldset>
           <div class="focus-settings">
             <label>Направление<select name="direction" required></select></label>
             <label>Тема сессии<input name="topic" placeholder="По желанию" maxlength="200"></label>
+            <label>Цель по времени<select id="focus-goal">
+              <option value="0">Без лимита</option>
+              <option value="25">25 мин</option>
+              <option value="50">50 мин</option>
+              <option value="90">90 мин</option>
+            </select></label>
           </div>
           <fieldset><legend>Запись в этой сессии</legend>
             <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
@@ -37,25 +58,36 @@
         <div id="active-study" hidden>
           <p id="active-focus"></p>
           <h2 id="study-topic"></h2>
+          <div class="dial">
+            <svg viewBox="0 0 200 200" aria-hidden="true">
+              <circle class="track" cx="100" cy="100" r="94"></circle>
+              <circle id="dial-progress" class="progress" cx="100" cy="100" r="94" pathLength="1"></circle>
+            </svg>
+            <p><time id="timer"></time></p>
+            <p id="dial-goal"></p>
+          </div>
           <div id="capture-status"></div>
-          <p><time id="timer"></time></p>
           <button type="button" id="stop-study">Закончить</button>
         </div>
-        <button type="button" id="reload-study" hidden>Обновить</button>
-      </fieldset>
+        </fieldset>
+      </div>
+      <button type="button" id="skip-entry">Пропустить переход · Esc</button>
+      <button type="button" id="reload-study" hidden>Обновить</button>
       <p class="notice" id="study-message" role="status">Загрузка…</p>
       <div id="study-summary" hidden>
         <h2>Активность за сессию</h2>
         <pre id="focus-log"></pre>
         <p>Дальше: <code>whiteroom review</code> — вопросы по сессии, <code>whiteroom practice pwn|math</code> — задача по теме (нужен ключ API).</p>
       </div>
-      <section id="recent-focus" hidden>
-        <h2>Последние фокус-сессии</h2><ul id="focus-history"></ul>
-      </section>
-      <section aria-labelledby="today-heading">
-        <h2 id="today-heading">Сегодня</h2>
-        <pre id="today" aria-live="polite">Загрузка…</pre>
-      </section>
+      <div class="logs">
+        <section id="recent-focus" hidden>
+          <h2>Последние фокус-сессии</h2><ul id="focus-history"></ul>
+        </section>
+        <section aria-labelledby="today-heading">
+          <h2 id="today-heading">Сегодня</h2>
+          <pre id="today" aria-live="polite">Загрузка…</pre>
+        </section>
+      </div>
     </section>
     <section id="reviews" aria-label="Повторения" hidden>
       <fieldset id="review-content"></fieldset>

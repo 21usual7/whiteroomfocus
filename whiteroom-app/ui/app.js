@@ -49,6 +49,113 @@ let started = null;
 let activeStudyId = null;
 let modes = [];
 const focusForm = $("start-study");
+let historyRows = [];
+let atlas = { challenges: [], due: 0, fresh: 0 };
+let focusGoal = 0;
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Цель по времени живёт только в окне: в базе её нет, поэтому храним по id сессии.
+function goalKey(id) { return "wr-goal-" + id; }
+function storedGoal(id) {
+  try { return Number(localStorage.getItem(goalKey(id))) || 0; } catch { return 0; }
+}
+function storeGoal(id, minutes) {
+  try { if (minutes) localStorage.setItem(goalKey(id), String(minutes)); } catch {}
+}
+
+// Поле строится только из реальных записей: история фокуса и очередь повторений.
+function drawAtlas() {
+  if (!modes.length) return;
+  const minutes = modes.map(mode => historyRows
+    .filter(row => row[3] === mode.id)
+    .reduce((sum, [start, end]) => sum + Math.max(0, end - start) / 60, 0));
+  field.setData(minutes, atlas.due);
+  const solved = atlas.challenges.filter(row => row[5] === "решён").length;
+  const total = Math.round(minutes.reduce((a, b) => a + b, 0));
+  $("readouts").replaceChildren(...[
+    ["К повторению", atlas.due, atlas.fresh ? `+${atlas.fresh} новых` : ""],
+    ["Задачи", `${solved}/${atlas.challenges.length}`, "решено"],
+    ["Фокус", total, `мин · ${historyRows.length} сесс.`],
+  ].flatMap(([term, value, unit]) => {
+    const data = element("dd", String(value));
+    if (unit) data.append(element("small", unit));
+    return [element("dt", term), data];
+  }));
+}
+
+async function loadAtlas() {
+  try {
+    const [challenges, queue] = await Promise.all([read("challenges"), read("review_queue")]);
+    atlas = {
+      challenges,
+      due: queue.filter(item => item[1] === "review").length,
+      fresh: queue.filter(item => item[1] === "new").length,
+    };
+  } catch {
+    // Показатели необязательны: без них форма фокуса работает как раньше.
+  }
+  drawAtlas();
+}
+
+const body = document.body;
+
+function syncScene() {
+  if ($("study").hidden) return field.setScene("tab");
+  if (body.classList.contains("in-room")) return field.setScene("room");
+  field.setScene(body.classList.contains("setup") ? "setup" : "dash");
+}
+
+function openSetup() {
+  body.classList.add("setup");
+  syncScene();
+  focusForm.querySelector("[name=mode]:checked")?.focus();
+}
+
+function closeSetup() {
+  body.classList.remove("setup");
+  syncScene();
+  $("open-setup").focus();
+}
+
+// Переход в комнату: интерфейс уходит, частицы выстраиваются в кольца. Esc или кнопка пропускают паузу.
+let skipEntry = null;
+function pause(ms) {
+  if (reducedMotion()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { clearTimeout(timer); skipEntry = null; resolve(); };
+    const timer = setTimeout(done, ms);
+    skipEntry = done;
+  });
+}
+
+function skip() {
+  if (!skipEntry) return;
+  field.skip();
+  skipEntry();
+}
+
+$("open-setup").addEventListener("click", openSetup);
+$("close-setup").addEventListener("click", closeSetup);
+$("skip-entry").addEventListener("click", skip);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (skipEntry) skip();
+  else if (body.classList.contains("setup") && !body.classList.contains("in-room") && !studyControls.disabled) closeSetup();
+});
+
+const motionLabels = { live: "Фон: живой", quiet: "Фон: тихий", off: "Фон: выкл" };
+let motion = "live";
+try { motion = localStorage.getItem("wr-motion") in motionLabels ? localStorage.getItem("wr-motion") : "live"; } catch {}
+function setMotion(value) {
+  motion = value;
+  field.setMotion(value);
+  $("motion").textContent = motionLabels[value];
+  try { localStorage.setItem("wr-motion", value); } catch {}
+}
+$("motion").addEventListener("click", () => {
+  setMotion({ live: "quiet", quiet: "off", off: "live" }[motion]);
+});
+setMotion(motion);
 
 function modeTitle(id) {
   return modes.find(mode => mode.id === id)?.title ?? id;
@@ -56,6 +163,7 @@ function modeTitle(id) {
 
 function selectMode(mode) {
   focusForm.elements.direction.replaceChildren(...mode.options.map(text => new Option(text, text)));
+  field.setMode(modes.indexOf(mode));
 }
 
 function renderModes(catalog) {
@@ -68,6 +176,8 @@ function renderModes(catalog) {
     input.value = mode.id;
     input.checked = index === 0;
     input.addEventListener("change", () => selectMode(mode));
+    label.addEventListener("pointerenter", () => field.hover(index));
+    label.addEventListener("pointerleave", () => field.hover(-1));
     label.append(input, element("span", mode.title));
     return label;
   }));
@@ -76,6 +186,8 @@ function renderModes(catalog) {
 
 async function loadHistory() {
   const rows = await read("focus_history");
+  historyRows = rows;
+  drawAtlas();
   $("focus-history").replaceChildren(...rows.map(([start, end, topic, mode, direction]) => {
     const row = element("li");
     const date = new Date(start * 1000).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
@@ -90,7 +202,17 @@ async function loadHistory() {
 function updateTimer() {
   if (started === null) return;
   const seconds = Math.max(0, Math.floor(Date.now() / 1000) - started);
-  $("timer").textContent = [
+  $("timer").textContent = clock(seconds);
+  const goal = focusGoal * 60;
+  // Без цели кольцо отмеряет текущую минуту.
+  $("dial-progress").style.strokeDashoffset = String(1 - (goal ? Math.min(1, seconds / goal) : seconds % 60 / 60));
+  $("active-study").classList.toggle("is-free", !goal);
+  $("active-study").classList.toggle("is-done", Boolean(goal) && seconds >= goal);
+  $("dial-goal").textContent = !goal ? "без лимита" : (seconds >= goal ? "цель достигнута · " : "цель · ") + clock(goal);
+}
+
+function clock(seconds) {
+  return [
     Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60,
   ].map((part) => String(part).padStart(2, "0")).join(":");
 }
@@ -100,11 +222,15 @@ function showStudy(active) {
   activeStudyId = active?.[3]?.[0] ?? null;
   $("start-study").hidden = Boolean(active);
   $("active-study").hidden = !active;
+  body.classList.toggle("in-room", Boolean(active));
+  if (active) body.classList.add("setup");
+  syncScene();
   if (active) {
     $("study-topic").textContent = active[1];
     const selection = active[2];
     $("active-focus").textContent = selection ? [modeTitle(selection[0]), selection[1]].join(" · ") : "Учебная сессия";
     $("study-summary").hidden = true;
+    focusGoal = storedGoal(activeStudyId);
     const [id, windows, browser] = active[3] ?? [0, false, false];
     const status = $("capture-status");
     status.replaceChildren();
@@ -140,7 +266,7 @@ function loadStudy() {
         $("reload-study").hidden = false;
         if (!modes.length) renderModes(await read("focus_catalog"));
         showStudy(await read("study_active"));
-        await loadHistory();
+        await Promise.all([loadHistory(), loadAtlas()]);
         $("reload-study").hidden = true;
       })(),
       loadToday(),
@@ -158,19 +284,30 @@ $("start-study").addEventListener("submit", (event) => {
     const direction = form.elements.direction.value;
     const windows = $("capture-window").checked;
     const browser = $("capture-browser").checked;
-    const [started, name, tracking, capture] = await read("study_start", { topic, mode, direction, windows, browser });
-    showStudy([started, name, [mode, direction], capture]);
-    $("capture-window").checked = false;
-    $("capture-browser").checked = false;
-    form.elements.topic.value = "";
-    if (!tracking) studyMessage.textContent = "Сессия началась, но трекер не запустился.";
+    body.classList.add("entering");
+    field.setScene("enter");
+    try {
+      await pause(850);
+      const [started, name, tracking, capture] = await read("study_start", { topic, mode, direction, windows, browser });
+      storeGoal(capture[0], Number($("focus-goal").value));
+      showStudy([started, name, [mode, direction], capture]);
+      $("capture-window").checked = false;
+      $("capture-browser").checked = false;
+      form.elements.topic.value = "";
+      if (!tracking) studyMessage.textContent = "Сессия началась, но трекер не запустился.";
+    } finally {
+      body.classList.remove("entering");
+      syncScene();
+    }
   });
 });
 
 $("stop-study").addEventListener("click", () => {
   run(studyControls, studyMessage, async () => {
     const log = await invoke("study_stop", { id: activeStudyId });
+    body.classList.remove("setup");
     showStudy(null);
+    field.pulse();
     $("focus-log").textContent = log;
     $("study-summary").hidden = false;
     await Promise.all([loadToday(), loadHistory()]);
@@ -227,6 +364,7 @@ function showQuestions(queue, sessionId, predicted) {
       const ms = Math.round(performance.now() - opened);
       const next = await run(reviewContent, reviewMessage, async () => {
         const result = await read("answer", { sessionId, itemId, role, answer, hint: usedHint, ms });
+        if (result.ok) field.activate("recall");
         if (role !== "retry") {
           if (result.ok) correct += 1;
           else queue.push([itemId, "retry", prompt, code, null]);
@@ -329,7 +467,10 @@ function showChallenge([id, title, kind, , , status, statement], setStatus) {
       if (!answer.trim()) throw new Error("Введи ответ.");
       result.textContent = "Проверка…";
       const ok = await read("solve", { id, answer });
-      if (ok) status = "решён";
+      if (ok) {
+        status = "решён";
+        field.activate("complete");
+      }
       else if (status === "новый") status = "в работе";
       setStatus(status);
       result.textContent = ok ? "✓ Решено" : "✗ Неверно";
@@ -423,6 +564,7 @@ for (const tab of tabs) {
       other.setAttribute("aria-pressed", String(selected));
       $(other.getAttribute("aria-controls")).hidden = !selected;
     }
+    syncScene();
     load[tab.getAttribute("aria-controls")]();
   });
 }
