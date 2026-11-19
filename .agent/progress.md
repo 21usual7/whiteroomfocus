@@ -41,3 +41,7 @@ All 16 supervisor tests passed using mocked Codex and temporary Git repositories
 The owner accepted the real-window WebKitGTK checks and local Git checkpoint `31b699c` in D6. Keyboard navigation, the focus ring after arrow selection and focus restoration after each revocation passed at 360×640 and 900×640. The current UI was unchanged from the reviewed UI. Both M1 items are in the completed ledger. The supervisor queue is empty while the next milestone awaits owner approval.
 
 All 17 supervisor tests passed. The launcher reported M1 closed, returned code 3 for `run` and `--status`, and made zero Codex calls.
+
+## 2026-11-19 — proposed follow-up milestones
+
+The backlog now records ordered tasks, acceptance evidence and approval boundaries for browser blocking recovery, local data retention and deletion, the delayed assessment pilot and pilot-driven learning workflow improvements. The active supervisor queue awaits owner approval.
