@@ -1,9 +1,9 @@
 {
   "as_of": "2026-11-19",
-  "phase": "M1_closed",
+  "phase": "browser_blocking_recovery",
   "completed_milestone": "M1 — согласие на запись и границы сессии",
-  "next_milestone": null,
-  "status": "pending_owner_approval",
+  "next_milestone": "Восстановление блокировки сайтов",
+  "status": "approved_for_implementation",
   "approval_record": "docs/decisions.md",
   "current_task": "tasks/current.md",
   "backlog": "tasks/backlog.md",
@@ -11,7 +11,10 @@
   "architecture": "docs/architecture.md",
   "progress": ".agent/progress.md",
   "git_checkpoint": "31b699c26eed041ea8c7c8ff5ef40d31bc4db55f",
-  "remaining": [],
-  "claude_task": "docs/prompt-claude-m1.md",
+  "remaining": [
+    "Разметка и стили восстановления в окне расширения",
+    "Проверка и реализация восстановления правил в защищённых файлах",
+    "Приёмка восстановления в Chromium с временным профилем"
+  ],
   "repository_url": "https://github.com/21usual7/whiteroomfocus"
 }

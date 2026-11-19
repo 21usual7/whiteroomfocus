@@ -45,3 +45,9 @@ All 17 supervisor tests passed. The launcher reported M1 closed, returned code 3
 ## 2026-11-19 — proposed follow-up milestones
 
 The backlog now records ordered tasks, acceptance evidence and approval boundaries for browser blocking recovery, local data retention and deletion, the delayed assessment pilot and pilot-driven learning workflow improvements. The active supervisor queue awaits owner approval.
+
+## 2026-11-19 — browser blocking recovery approved
+
+The owner approved stage 1 in D7. A synthetic run of the current worker reproduced stale rules after restart, a skipped retry after update failure and retained rules after disconnect. The queue starts with the popup contract and trusted acceptance fixture. Protected rule and messaging changes and the temporary-profile Chromium check have separate owner gates.
+
+The 17 supervisor tests and browser consent fixture passed. The popup fixture rejected the current markup and passed with the required elements in a temporary copy.
