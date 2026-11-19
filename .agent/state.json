@@ -1,0 +1,20 @@
+{
+  "as_of": "2026-11-19",
+  "phase": "M1_validation",
+  "completed_milestone": "Research reconciliation and autonomous workflow setup",
+  "next_milestone": "M1 — source consent and session boundaries",
+  "status": "approved_for_implementation",
+  "approval_record": "docs/decisions.md",
+  "current_task": "tasks/current.md",
+  "backlog": "tasks/backlog.md",
+  "completed": "tasks/completed.md",
+  "architecture": "docs/architecture.md",
+  "progress": ".agent/progress.md",
+  "git_checkpoint": "blocked_missing_original_metadata",
+  "remaining": [
+    "Final real-window 360/900 px keyboard, focus restoration and mode-arrow indicator checks on rebuilt desktop",
+    "Local checkpoint in a writable checkout"
+  ],
+  "claude_task": "docs/prompt-claude-m1.md",
+  "repository_url": "https://github.com/21usual7/whiteroom"
+}

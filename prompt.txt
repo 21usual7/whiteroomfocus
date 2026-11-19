@@ -1,0 +1,229 @@
+# WHITE ROOM — Research-First Development
+
+You are a senior software architect, cognitive science researcher, AI engineer, and product designer.
+
+Your task is to research, design, and eventually build **WHITE ROOM** — an advanced desktop application for deep concentration, accelerated learning, long-term memory retention, and measurable cognitive development.
+
+The project takes aesthetic inspiration from the White Room in *Classroom of the Elite*, but its actual mechanisms must be grounded in scientific evidence rather than fictional concepts.
+
+**IMPORTANT: DO NOT START IMPLEMENTING THE APPLICATION YET.**
+
+Your first task is to conduct comprehensive research, challenge my assumptions, discover better approaches, and produce a technically realistic product specification.
+
+Do not simply agree with my ideas. Identify what works, what doesn't, and what could work better.
+
+## 1. Product Vision
+
+WHITE ROOM should be a personalized cognitive training environment, not another Pomodoro timer or generic productivity app.
+
+The user enters Focus Mode and selects a domain:
+
+- Mathematics
+- Research
+- German
+- Cybersecurity
+- Programming
+- Custom domain
+
+Each domain has specialized learning modes, tools, objectives, and evaluation methods.
+
+For example:
+
+Mathematics → Learning / Problem Solving / Recall.
+
+Cybersecurity → Research / Labs / Reverse Engineering / Practice.
+
+Programming → Learning / Implementation / Debugging / Problem Solving.
+
+Before a session, an intelligent onboarding system asks a few contextual questions to understand the user's goals, current knowledge, task requirements, and necessary applications.
+
+It then generates a personalized training protocol.
+
+Sessions may span up to four hours, divided into scientifically justified focus blocks, recovery periods, and knowledge assessments.
+
+## 2. Research Areas
+
+Investigate the following topics using peer-reviewed studies, systematic reviews, meta-analyses, reputable academic publications, and relevant technical documentation.
+
+### A. Cognitive Science and Learning
+
+Research:
+
+- Active Recall and Retrieval Practice
+- Spaced Repetition and FSRS
+- Interleaving
+- Deliberate Practice
+- Cognitive Load Theory
+- Metacognition
+- Desirable Difficulties
+- Deep Work and sustained attention
+- Memory consolidation
+- Feedback timing
+- Learning transfer
+- Self-explanation and elaboration
+- Effects of breaks, fatigue, and sleep on learning
+
+Determine which techniques have strong empirical support, which are context-dependent, and which are controversial.
+
+Distinguish actual improvements in learning from improvements in perceived productivity.
+
+### B. Focus and Environmental Control
+
+Investigate:
+
+- Application and website blocking
+- Distraction detection
+- Task switching and attention fragmentation
+- Background noise, white noise, brown noise, music, and silence
+- Whether controlled environmental distractions can improve distraction resilience
+- Adaptive session lengths
+- Recovery intervals
+- Ethical and safe attention-training methods
+
+Do not assume that unpleasant sounds, extreme isolation, or prolonged sessions improve cognition.
+
+### C. AI Cognitive Monitoring
+
+Research how a privacy-first AI agent could observe task-relevant computer activity and estimate:
+
+- Task alignment
+- Context switching
+- Focus interruptions
+- Task progression
+- Signs that the user may need a break
+- Learning outcomes
+
+Investigate active-window tracking, application metadata, optional screen analysis, IDE integrations, browser extensions, and local AI models.
+
+Critically evaluate what these signals can and cannot establish.
+
+Never equate keyboard activity or time spent in an application with actual learning.
+
+The system must be transparent, opt-in, locally controlled, and capable of functioning without continuous screen recording.
+
+### D. Personalized Cognitive Model
+
+Explore how WHITE ROOM could gradually construct a personalized learning profile based on:
+
+- Knowledge retention
+- Recall accuracy
+- Problem-solving performance
+- Error patterns
+- Task difficulty
+- Learning speed
+- Transfer of knowledge
+- Long-term progress
+
+Investigate adaptive learning algorithms, knowledge tracing, Bayesian models, FSRS, and relevant alternatives.
+
+Avoid scientifically unsupported claims about IQ improvement, intelligence enhancement, or cognitive degradation.
+
+### E. Existing Products
+
+Analyze relevant features, strengths, weaknesses, and opportunities in products such as:
+
+- Anki
+- SuperMemo
+- Focusmate
+- Freedom
+- Cold Turkey
+- RescueTime
+- Rize
+- Brain.fm
+- Brilliant
+- Duolingo
+
+Identify opportunities for meaningful differentiation rather than simply combining existing features.
+
+## 3. Technical Feasibility
+
+The primary target platform is **Linux desktop**.
+
+Research the feasibility of:
+
+- Tauri + React + TypeScript
+- Rust-based system integration
+- SQLite
+- Claude API and alternative AI providers
+- Local inference
+- Browser extensions
+- IDE integrations
+- Active-window monitoring
+- Application blocking
+- Wayland vs X11 compatibility
+- Secure permissions and privacy
+- Offline functionality
+- Resource consumption
+
+Compare reasonable alternatives before selecting a stack.
+
+Do not assume that system-wide monitoring or application blocking is universally supported.
+
+## 4. Product Innovation
+
+Go beyond my initial feature ideas.
+
+Propose original mechanisms that could make WHITE ROOM meaningfully better than conventional focus applications.
+
+Prioritize features that improve measurable learning outcomes.
+
+Consider:
+
+- Adaptive learning protocols
+- Knowledge decay prediction
+- AI-generated recall challenges
+- Domain-specific training environments
+- Personalized difficulty adjustment
+- Long-term retention analytics
+- Intelligent session planning
+- Progress-based feedback
+
+Clearly distinguish research-backed mechanisms from experimental hypotheses.
+
+## 5. Research Deliverables
+
+Create the following Markdown files inside a `docs/research/` directory:
+
+1. `scientific-foundations.md` — Evidence review, study references, limitations, and practical implications.
+2. `competitive-analysis.md` — Existing products and differentiation opportunities.
+3. `technical-feasibility.md` — Platform constraints, integration options, and architecture tradeoffs.
+4. `product-specification.md` — Detailed user experience, features, domain-specific workflows, and functional requirements.
+5. `cognitive-engine.md` — Proposed adaptive learning and memory architecture.
+6. `implementation-roadmap.md` — MVP scope, development phases, dependencies, risks, and validation milestones.
+
+For important scientific claims, include source links, publication dates, study types, and evidence strength.
+
+Use actual source research where browsing is available. Never fabricate citations. If external research is unavailable, explicitly identify what remains unverified.
+
+## 6. Development Process
+
+Follow this sequence:
+
+**Phase 1 — Research:** Investigate the scientific and technical foundations.
+
+**Phase 2 — Critical Evaluation:** Challenge the initial concept, identify weaknesses, and propose improvements.
+
+**Phase 3 — Product Architecture:** Define components, data flows, security boundaries, and integration contracts.
+
+**Phase 4 — MVP Planning:** Determine the smallest product capable of testing whether WHITE ROOM genuinely improves learning outcomes.
+
+**Phase 5 — Implementation:** Begin only after I review and approve the research and architecture.
+
+Before implementation, present the most important findings, architectural decisions, unresolved questions, and your recommended direction.
+
+Do not create application source code during the research phase.
+
+## 7. Quality Standards
+
+- Think like a researcher, not a marketing copywriter.
+- Prioritize evidence over intuition.
+- Prefer measurable outcomes over arbitrary productivity scores.
+- Separate established findings from hypotheses.
+- Avoid unnecessary complexity.
+- Design for privacy and user control.
+- Preserve breaks, accessibility, and emergency exit controls.
+- Do not optimize for compulsive usage or maximum screen time.
+- Challenge assumptions, including my own.
+- Be ambitious about innovation but realistic about implementation.
+
+**Begin with research, not coding.**

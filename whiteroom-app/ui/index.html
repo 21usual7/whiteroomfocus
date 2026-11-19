@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WHITE ROOM</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="theme.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>WHITE ROOM</h1>
+      <nav aria-label="Разделы">
+        <button type="button" aria-controls="study" aria-pressed="true">Фокус</button>
+        <button type="button" aria-controls="reviews" aria-pressed="false">Повторения</button>
+        <button type="button" aria-controls="practice" aria-pressed="false">Практика</button>
+        <button type="button" aria-controls="sites" aria-pressed="false">Сайты</button>
+      </nav>
+    </header>
+    <section id="study" aria-label="Сессия">
+      <h2 class="section-title">Кибербезопасность</h2>
+      <fieldset id="study-controls">
+        <form id="start-study" hidden>
+          <fieldset><legend>Режим фокуса</legend><div id="focus-modes"></div></fieldset>
+          <div class="focus-settings">
+            <label>Направление<select name="direction" required></select></label>
+            <label>Тема сессии<input name="topic" placeholder="По желанию" maxlength="200"></label>
+          </div>
+          <fieldset><legend>Запись в этой сессии</legend>
+            <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
+            <label><input id="capture-browser" type="checkbox"> Вкладки и выдержки с учебных сайтов</label>
+          </fieldset>
+          <button class="primary">Начать сессию</button>
+        </form>
+        <div id="active-study" hidden>
+          <p id="active-focus"></p>
+          <h2 id="study-topic"></h2>
+          <div id="capture-status"></div>
+          <p><time id="timer"></time></p>
+          <button type="button" id="stop-study">Закончить</button>
+        </div>
+        <button type="button" id="reload-study" hidden>Обновить</button>
+      </fieldset>
+      <p class="notice" id="study-message" role="status">Загрузка…</p>
+      <div id="study-summary" hidden>
+        <h2>Активность за сессию</h2>
+        <pre id="focus-log"></pre>
+        <p>Дальше: <code>whiteroom review</code> — вопросы по сессии, <code>whiteroom practice pwn|math</code> — задача по теме (нужен ключ API).</p>
+      </div>
+      <section id="recent-focus" hidden>
+        <h2>Последние фокус-сессии</h2><ul id="focus-history"></ul>
+      </section>
+      <section aria-labelledby="today-heading">
+        <h2 id="today-heading">Сегодня</h2>
+        <pre id="today" aria-live="polite">Загрузка…</pre>
+      </section>
+    </section>
+    <section id="reviews" aria-label="Повторения" hidden>
+      <fieldset id="review-content"></fieldset>
+      <p class="notice" id="review-message" role="status"></p>
+    </section>
+    <section id="practice" aria-label="Практика" hidden>
+      <fieldset id="practice-controls">
+        <ul id="challenge-list"></ul>
+        <div id="challenge-detail"></div>
+      </fieldset>
+      <p class="notice" id="practice-message" role="status"></p>
+    </section>
+    <section id="sites" aria-label="Сайты" hidden>
+      <p>Блокируются в Chromium только во время сессии.</p>
+      <fieldset id="site-controls">
+        <form id="add-site">
+          <label>Домен <input name="domain" placeholder="youtube.com" required></label>
+          <button>Добавить</button>
+        </form>
+        <ul id="site-list"></ul>
+      </fieldset>
+      <p class="notice" id="sites-message" role="status"></p>
+    </section>
+  </main>
+</body>
+</html>

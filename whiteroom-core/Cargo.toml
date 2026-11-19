@@ -1,0 +1,20 @@
+[package]
+name = "whiteroom-core"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "whiteroom"
+path = "src/main.rs"
+
+[dependencies]
+fsrs = "7"
+libc = "0.2.191"
+rand = "0.10.4"
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.2.1"
+ureq = { version = "3.5.2", features = ["json"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }

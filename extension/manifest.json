@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "WHITE ROOM",
+  "version": "0.2",
+  "description": "Записывает учебные страницы для разбора в WHITE ROOM. Всё хранится локально.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuudzJ6FLSF5oz9eClaVE8fHGYmI3a7mdLGHH7v65QqNYt/nPhSCtfd9g0f9Fnmxj+h5oatFsNiP15I7wTqyV+ILZ+wrlM9/5JfmrVXskWgEFB3hgLWTI2jL6AM1/NNP4Yiv7A6vEpqVuTRhV2n4x28gH4NLf8SOXFlEfK8/TbtWgeCujSzSAgcbdGEbQwAVEoAtM/P57aycgPFTjG/u4ICIVpxUDnQE3ew0n2oL9JHEq4CMtFW6L3Mg8qvTRJ97Hm0PK0NSk/mVlFraEvhnOFbStxE9WhDmqBtWhHSMBAj7Zcu7hrFe67BzBLAdlV+kp3hpbYjQPOXGuCrtdThpGcQIDAQAB",
+  "permissions": [
+    "tabs",
+    "nativeMessaging",
+    "storage",
+    "scripting",
+    "declarativeNetRequest",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WHITE ROOM"
+  }
+}

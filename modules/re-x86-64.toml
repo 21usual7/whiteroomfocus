@@ -1,0 +1,631 @@
+# Модуль: основы реверса x86-64 (Linux, System V, синтаксис Intel).
+# role = "practice" — для сессий; role = "test7" — отложенная проверка через 7 дней,
+# эти вопросы не показываются до проверки ни в одной группе.
+# kind = "number": ответ сравнивается как 64-битное число (принимаются 0x.., десятичные, отрицательные).
+# kind = "text": без учёта регистра, пробелов и '%'.
+# code + run = true: тест компилирует код и сверяет rax с ответом (cargo test).
+# Правка формулировки или ответа → увеличить v.
+
+id = "re-x86-64"
+title = "Реверс x86-64: основы"
+
+[[objective]]
+id = "abi"
+title = "Соглашение о вызовах System V и регистры"
+
+[[objective]]
+id = "stack"
+title = "Стек: push/pop/call/ret и кадр функции"
+
+[[objective]]
+id = "trace"
+title = "Трассировка: арифметика, флаги, переходы"
+
+[[objective]]
+id = "overflow"
+title = "Переполнение буфера на стеке: смещения и байты"
+
+# ───────────── abi ─────────────
+
+[[item]]
+id = "abi-p1"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = "System V AMD64: в каком регистре передаётся 1-й целочисленный аргумент функции?"
+answer = ["rdi"]
+hint = "Порядок: шесть регистров, начинается с «di»."
+explain = "Аргументы по порядку: rdi, rsi, rdx, rcx, r8, r9. Остальные — через стек."
+
+[[item]]
+id = "abi-p2"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = "В каком регистре передаётся 3-й целочисленный аргумент?"
+answer = ["rdx"]
+hint = "rdi, rsi, …"
+explain = "rdi, rsi, rdx, rcx, r8, r9 — третий rdx."
+
+[[item]]
+id = "abi-p3"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = "В каком регистре передаётся 5-й целочисленный аргумент?"
+answer = ["r8"]
+hint = "После четырёх «старых» регистров идут пронумерованные."
+explain = "rdi, rsi, rdx, rcx, r8, r9 — пятый r8."
+
+[[item]]
+id = "abi-p4"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = "В каком регистре функция возвращает целочисленный результат?"
+answer = ["rax"]
+hint = "Аккумулятор."
+explain = "Результат — в rax (128-битный — в rdx:rax)."
+
+[[item]]
+id = "abi-p5"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = "4-й аргумент обычной функции идёт в rcx. А в каком регистре 4-й аргумент системного вызова (syscall)?"
+answer = ["r10"]
+hint = "Инструкция syscall сама портит rcx (кладёт туда адрес возврата)."
+explain = "syscall сохраняет rip в rcx и rflags в r11, поэтому ядро берёт 4-й аргумент из r10."
+
+[[item]]
+id = "abi-p6"
+objective = "abi"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0x1122334455667788
+mov eax, 0xffffffff
+"""
+run = true
+answer = ["0xffffffff"]
+hint = "Запись в 32-битную половину регистра на x86-64 делает что-то с верхними 32 битами."
+explain = "Запись в eax обнуляет верхние 32 бита rax (zero-extension): rax = 0x00000000ffffffff."
+
+[[item]]
+id = "abi-p7"
+objective = "abi"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0x1122334455667788
+mov al, 0x41
+"""
+run = true
+answer = ["0x1122334455667741"]
+hint = "Правило обнуления верхних бит действует только для 32-битных записей."
+explain = "Запись в al (8 бит) меняет только младший байт, остальное сохраняется."
+
+[[item]]
+id = "abi-p8"
+objective = "abi"
+role = "practice"
+kind = "text"
+prompt = """Какой регистр вызываемая функция обязана сохранить (callee-saved)?
+a) rbx   b) rcx   c) rsi   d) r11"""
+answer = ["a", "rbx"]
+hint = "Callee-saved: rbx, rbp, r12–r15."
+explain = "rbx, rbp, r12–r15 и rsp сохраняет вызываемая функция. rcx, rsi, r11 может портить."
+
+[[item]]
+id = "abi-t1"
+objective = "abi"
+role = "test7"
+kind = "text"
+prompt = "System V AMD64: в каком регистре передаётся 2-й целочисленный аргумент?"
+answer = ["rsi"]
+explain = "rdi, rsi, rdx, rcx, r8, r9 — второй rsi."
+
+[[item]]
+id = "abi-t2"
+objective = "abi"
+role = "test7"
+kind = "text"
+prompt = "В каком регистре передаётся 6-й целочисленный аргумент?"
+answer = ["r9"]
+explain = "rdi, rsi, rdx, rcx, r8, r9 — шестой r9."
+
+[[item]]
+id = "abi-t3"
+objective = "abi"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0xaaaaaaaaaaaaaaaa
+mov ax, 0x1234
+"""
+run = true
+answer = ["0xaaaaaaaaaaaa1234"]
+explain = "16-битная запись меняет только младшие 2 байта."
+
+[[item]]
+id = "abi-t4"
+objective = "abi"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, -1
+mov eax, 1
+"""
+run = true
+answer = ["1"]
+explain = "32-битная запись обнуляет верхние 32 бита: rax = 1."
+
+# ───────────── stack ─────────────
+
+[[item]]
+id = "stack-p1"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = "rsp = 0x7fffffffe000. Чему равен rsp после `push rax`?"
+answer = ["0x7fffffffdff8"]
+hint = "Стек растёт вниз, push кладёт 8 байт."
+explain = "push: rsp -= 8, затем запись. 0x7fffffffe000 − 8 = 0x7fffffffdff8."
+
+[[item]]
+id = "stack-p2"
+objective = "stack"
+role = "practice"
+kind = "text"
+prompt = """Что лежит по адресу [rsp] на первой инструкции функции (сразу после call, до пролога)?
+a) сохранённый rbp   b) адрес возврата   c) первый аргумент   d) канарейка"""
+answer = ["b"]
+hint = "call = push <следующая инструкция> + jmp."
+explain = "call кладёт адрес следующей за ним инструкции — это адрес возврата, ret его снимет."
+
+[[item]]
+id = "stack-p3"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = """На входе в функцию rsp = 0x7fffffffe008. Пролог:
+    push rbp
+    mov  rbp, rsp
+    sub  rsp, 0x20
+Чему равен rbp после пролога?"""
+answer = ["0x7fffffffe000"]
+hint = "rbp получает значение rsp сразу после push."
+explain = "push rbp: rsp = 0x…e000; mov rbp, rsp: rbp = 0x7fffffffe000."
+
+[[item]]
+id = "stack-p4"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = """На входе в функцию rsp = 0x7fffffffe008. Пролог:
+    push rbp
+    mov  rbp, rsp
+    sub  rsp, 0x20
+Чему равен rsp после пролога?"""
+answer = ["0x7fffffffdfe0"]
+hint = "Сначала −8 за push, потом −0x20."
+explain = "0x…e008 − 8 = 0x…e000; − 0x20 = 0x7fffffffdfe0."
+
+[[item]]
+id = "stack-p5"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = "После стандартного пролога (push rbp; mov rbp, rsp) адрес возврата лежит по [rbp + ?]. Назови смещение."
+answer = ["8"]
+hint = "По [rbp] лежит то, что положил последний push."
+explain = "[rbp] — сохранённый rbp, [rbp+8] — адрес возврата, выше — аргументы со стека."
+
+[[item]]
+id = "stack-p6"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = "rbp = 0x7fffffffe000. По какому адресу лежит локальная переменная [rbp-0x14]?"
+answer = ["0x7fffffffdfec"]
+hint = "0x…e000 − 0x10 = 0x…dff0, ещё −4."
+explain = "0x7fffffffe000 − 0x14 = 0x7fffffffdfec."
+
+[[item]]
+id = "stack-p7"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = "ABI требует rsp % 16 == 0 непосредственно перед `call`. Чему равен rsp % 16 на первой инструкции вызванной функции?"
+answer = ["8"]
+hint = "Что call делает со стеком?"
+explain = "call кладёт 8-байтный адрес возврата, поэтому на входе rsp % 16 == 8; push rbp выравнивает обратно."
+
+[[item]]
+id = "stack-p8"
+objective = "stack"
+role = "practice"
+kind = "number"
+prompt = "rsp = 0x7fffffffd000, [rsp] = 0x401200. Выполняется `ret`. Чему равен rip после неё?"
+answer = ["0x401200"]
+hint = "ret = pop rip."
+explain = "ret снимает 8 байт со стека в rip: rip = 0x401200, rsp = 0x7fffffffd008."
+
+[[item]]
+id = "stack-t1"
+objective = "stack"
+role = "test7"
+kind = "number"
+prompt = "rsp = 0x7fffffffd010. Чему равен rsp после `pop rbx`?"
+answer = ["0x7fffffffd018"]
+explain = "pop: чтение, затем rsp += 8."
+
+[[item]]
+id = "stack-t2"
+objective = "stack"
+role = "test7"
+kind = "number"
+prompt = """На входе в функцию rsp = 0x7fffffffd018. Пролог:
+    push rbp
+    mov  rbp, rsp
+    sub  rsp, 0x30
+Чему равен rsp после пролога?"""
+answer = ["0x7fffffffcfe0"]
+explain = "0x…d018 − 8 = 0x…d010; − 0x30 = 0x7fffffffcfe0."
+
+[[item]]
+id = "stack-t3"
+objective = "stack"
+role = "test7"
+kind = "number"
+prompt = "rbp = 0x7fffffffd010, rsp = 0x7fffffffcf00. Чему равен rsp после `leave`?"
+answer = ["0x7fffffffd018"]
+explain = "leave = mov rsp, rbp; pop rbp. rsp = 0x…d010 + 8 = 0x7fffffffd018."
+
+[[item]]
+id = "stack-t4"
+objective = "stack"
+role = "test7"
+kind = "number"
+prompt = "После стандартного пролога (push rbp; mov rbp, rsp) сохранённый rbp вызывающей функции лежит по [rbp + ?]. Назови смещение."
+answer = ["0"]
+explain = "rbp указывает ровно на сохранённый rbp: [rbp+0]."
+
+# ───────────── trace ─────────────
+
+[[item]]
+id = "trace-p1"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov  rax, 5
+mov  rbx, 3
+imul rax, rbx
+add  rax, 2
+"""
+run = true
+answer = ["17"]
+hint = "imul с двумя операндами: rax = rax * rbx."
+explain = "5 * 3 = 15, + 2 = 17."
+
+[[item]]
+id = "trace-p2"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 1
+shl rax, 4
+or  rax, 3
+"""
+run = true
+answer = ["19"]
+hint = "shl на n = умножить на 2^n."
+explain = "1 << 4 = 0x10; 0x10 | 0x3 = 0x13 = 19."
+
+[[item]]
+id = "trace-p3"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+    xor eax, eax
+    mov ecx, 5
+.loop:
+    add eax, ecx
+    dec ecx
+    jnz .loop
+"""
+run = true
+answer = ["15"]
+hint = "Цикл крутится, пока ecx не станет 0. Какие значения ecx прибавятся?"
+explain = "Прибавляются 5, 4, 3, 2, 1 → 15. При ecx = 0 dec ставит ZF, jnz не прыгает."
+
+[[item]]
+id = "trace-p4"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0x10
+lea rax, [rax + rax*2 + 4]
+"""
+run = true
+answer = ["52"]
+hint = "lea только считает адрес, память не читает."
+explain = "0x10 + 0x20 + 4 = 0x34 = 52. Компиляторы так умножают на 3 и прибавляют константу."
+
+[[item]]
+id = "trace-p5"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+    mov rax, -1
+    mov rbx, 1
+    cmp rax, rbx
+    jg  .big
+    mov rax, 0
+    jmp .end
+.big:
+    mov rax, 1
+.end:
+"""
+run = true
+answer = ["0"]
+hint = "jg сравнивает как знаковые числа."
+explain = "jg — знаковое сравнение: −1 > 1 ложно, переход не выполняется, rax = 0."
+
+[[item]]
+id = "trace-p6"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+    mov rax, -1
+    mov rbx, 1
+    cmp rax, rbx
+    ja  .big
+    mov rax, 0
+    jmp .end
+.big:
+    mov rax, 1
+.end:
+"""
+run = true
+answer = ["1"]
+hint = "ja сравнивает как беззнаковые числа. Что такое −1 без знака?"
+explain = "ja — беззнаковое: 0xffffffffffffffff > 1, переход выполняется, rax = 1."
+
+[[item]]
+id = "trace-p7"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0xf0
+and rax, 0x3c
+"""
+run = true
+answer = ["48"]
+hint = "Распиши в двоичном: 1111 0000 и 0011 1100."
+explain = "11110000 & 00111100 = 00110000 = 0x30 = 48."
+
+[[item]]
+id = "trace-p8"
+objective = "trace"
+role = "practice"
+kind = "number"
+prompt = "Чему равен rax после выполнения (можно ответить знаковым числом)?"
+code = """
+mov rax, -8
+sar rax, 1
+"""
+run = true
+answer = ["-4"]
+hint = "sar — арифметический сдвиг, сохраняет знак (в отличие от shr)."
+explain = "sar копирует знаковый бит: −8 >> 1 = −4 (0xfffffffffffffffc). shr дал бы огромное положительное."
+
+[[item]]
+id = "trace-t1"
+objective = "trace"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov  rax, 6
+mov  rbx, 7
+imul rax, rbx
+sub  rax, 2
+"""
+run = true
+answer = ["40"]
+explain = "6 * 7 = 42, − 2 = 40."
+
+[[item]]
+id = "trace-t2"
+objective = "trace"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+    xor eax, eax
+    mov ecx, 4
+.loop:
+    add eax, ecx
+    add eax, ecx
+    dec ecx
+    jnz .loop
+"""
+run = true
+answer = ["20"]
+explain = "2 * (4 + 3 + 2 + 1) = 20."
+
+[[item]]
+id = "trace-t3"
+objective = "trace"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+mov rax, 0x20
+lea rax, [rax*4 + 8]
+"""
+run = true
+answer = ["136"]
+explain = "0x20 * 4 + 8 = 0x88 = 136."
+
+[[item]]
+id = "trace-t4"
+objective = "trace"
+role = "test7"
+kind = "number"
+prompt = "Чему равен rax после выполнения?"
+code = """
+    mov rax, 2
+    mov rbx, -3
+    cmp rax, rbx
+    jb  .yes
+    mov rax, 10
+    jmp .end
+.yes:
+    mov rax, 20
+.end:
+"""
+run = true
+answer = ["20"]
+explain = "jb — беззнаковое: 2 < 0xfffffffffffffffd, переход выполняется, rax = 20."
+
+# ───────────── overflow ─────────────
+
+[[item]]
+id = "overflow-p1"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "`char buf[64]` лежит по [rbp-0x40], канарейки нет, стандартный пролог. Сколько байт от начала buf до сохранённого адреса возврата?"
+answer = ["72"]
+hint = "От buf до rbp — 0x40, по [rbp] лежит ещё что-то 8-байтное."
+explain = "0x40 до сохранённого rbp + 8 байт rbp = 0x48 = 72."
+
+[[item]]
+id = "overflow-p2"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "buf лежит по [rbp-0x20]. Сколько байт от начала buf до сохранённого rbp?"
+answer = ["32"]
+hint = "Сохранённый rbp лежит по [rbp+0]."
+explain = "Смещение = 0x20 = 32."
+
+[[item]]
+id = "overflow-p3"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "Адрес 0x401136 записывается в память как 8-байтное значение. Какой байт будет первым (по младшему адресу)?"
+answer = ["0x36"]
+hint = "x86 — little-endian."
+explain = "Little-endian: младший байт первым → 36 11 40 00 00 00 00 00."
+
+[[item]]
+id = "overflow-p4"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "Payload: b'A' * 72 + p64(0x401136). Какова его длина в байтах?"
+answer = ["80"]
+hint = "p64 всегда упаковывает в 8 байт."
+explain = "72 + 8 = 80."
+
+[[item]]
+id = "overflow-p5"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "buf лежит по [rbp-0x50], канарейка по [rbp-0x8]. Сколько байт от начала buf до канарейки?"
+answer = ["72"]
+hint = "Вычти смещения: 0x50 − 0x8."
+explain = "0x50 − 0x8 = 0x48 = 72. Чтобы дойти до адреса возврата, надо переписать канарейку её же значением."
+
+[[item]]
+id = "overflow-p6"
+objective = "overflow"
+role = "practice"
+kind = "text"
+prompt = """Почему младший байт канарейки в glibc равен 0x00?
+a) чтобы строковые функции (strcpy, puts) останавливались на нём и не могли её прочитать или записать целиком
+b) для выравнивания стека
+c) это бит NX"""
+answer = ["a"]
+hint = "Что делают строковые функции, встретив нулевой байт?"
+explain = "Нулевой байт обрывает строку: утечка через puts/printf %s и перезапись через strcpy спотыкаются о него."
+
+[[item]]
+id = "overflow-p7"
+objective = "overflow"
+role = "practice"
+kind = "text"
+prompt = """`char buf[64]`. Какой вызов позволяет переполнить buf?
+a) gets(buf)   b) fgets(buf, 64, stdin)   c) оба"""
+answer = ["a"]
+hint = "Знает ли функция размер буфера?"
+explain = "gets не знает размера и читает до \\n. fgets записывает не больше 63 байт + \\0."
+
+[[item]]
+id = "overflow-p8"
+objective = "overflow"
+role = "practice"
+kind = "number"
+prompt = "buf лежит по [rbp-0x30], `int is_admin` по [rbp-0x4]. Сколько байт от начала buf до is_admin?"
+answer = ["44"]
+hint = "0x30 − 0x4."
+explain = "0x30 − 0x4 = 0x2c = 44: 44 байта мусора, и следующие 4 байта перезапишут is_admin."
+
+[[item]]
+id = "overflow-t1"
+objective = "overflow"
+role = "test7"
+kind = "number"
+prompt = "buf лежит по [rbp-0x70], канарейки нет, стандартный пролог. Сколько байт от начала buf до сохранённого адреса возврата?"
+answer = ["120"]
+explain = "0x70 + 8 = 0x78 = 120."
+
+[[item]]
+id = "overflow-t2"
+objective = "overflow"
+role = "test7"
+kind = "number"
+prompt = "Адрес 0x7fffdeadbeef записывается в память как 8-байтное значение. Какой байт будет первым (по младшему адресу)?"
+answer = ["0xef"]
+explain = "Little-endian: первым идёт младший байт 0xef."
+
+[[item]]
+id = "overflow-t3"
+objective = "overflow"
+role = "test7"
+kind = "number"
+prompt = "buf лежит по [rbp-0x40], `int authorized` по [rbp-0xc]. Сколько байт от начала buf до authorized?"
+answer = ["52"]
+explain = "0x40 − 0xc = 0x34 = 52."
+
+[[item]]
+id = "overflow-t4"
+objective = "overflow"
+role = "test7"
+kind = "number"
+prompt = "buf лежит по [rbp-0x30], канарейка по [rbp-0x8]. Сколько байт от начала buf до канарейки?"
+answer = ["40"]
+explain = "0x30 − 0x8 = 0x28 = 40."

@@ -1,0 +1,26 @@
+{
+  "identifier": "main",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-status",
+    "allow-focus-catalog",
+    "allow-focus-history",
+    "allow-study-active",
+    "allow-study-start",
+    "allow-study-stop",
+    "allow-revoke-capture",
+    "allow-review-queue",
+    "allow-session-begin",
+    "allow-answer",
+    "allow-session-end",
+    "allow-challenges",
+    "allow-next-hint",
+    "allow-solve",
+    "allow-export-files",
+    "allow-blocked",
+    "allow-block-add",
+    "allow-block-rm"
+  ]
+}

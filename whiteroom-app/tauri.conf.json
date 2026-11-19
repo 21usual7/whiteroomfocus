@@ -1,0 +1,26 @@
+{
+  "productName": "WHITE ROOM",
+  "version": "0.1.0",
+  "identifier": "com.whiteroom.app",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "WHITE ROOM",
+        "width": 900,
+        "height": 640
+      }
+    ],
+    "security": {
+      "capabilities": ["main"],
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "icon": ["icons/icon.png"]
+  }
+}

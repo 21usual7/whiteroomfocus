@@ -1,0 +1,15 @@
+{
+  "kind": "math",
+  "title": "Телескоп",
+  "topic": "ряды, телескопические суммы",
+  "difficulty": 3,
+  "statement": "Найди сумму ряда  Σ (n от 1 до ∞)  1 / (n(n+1)(n+2)).",
+  "hints": [
+    "Разложи дробь на простые так, чтобы соседние слагаемые сокращались.",
+    "Попробуй представить 1/(n(n+1)(n+2)) как разность двух дробей вида 1/(n(n+1)) и 1/((n+1)(n+2)).",
+    "1/(n(n+1)(n+2)) = ½·(1/(n(n+1)) − 1/((n+1)(n+2))). Что остаётся от частичной суммы?",
+    "Частичная сумма S_N = ½·(1/2 − 1/((N+1)(N+2))) → ½·½ = 1/4."
+  ],
+  "answer": "1/4",
+  "verify": "from sympy import symbols, summation, oo, Rational\nn = symbols('n', integer=True, positive=True)\nassert summation(1/(n*(n+1)*(n+2)), (n, 1, oo)) == Rational(1, 4)\nassert abs(sum(1/(k*(k+1)*(k+2)) for k in range(1, 200000)) - 0.25) < 1e-9\nprint('ok')\n"
+}

@@ -1,0 +1,29 @@
+# WHITE ROOM architecture
+
+The product uses study activity to support retrieval practice and delayed assessment. The first user-requested section is cybersecurity. The six focus modes label sessions and offer distinct directions. Evidence of learning will require unseen follow-ups with denominators and recorded delays. [Product specification](research/product-specification.md) · [Pilot critique](research/independent-review.md)
+
+## Existing prototype
+
+| Component | Responsibility and boundary |
+| --- | --- |
+| Rust core and SQLite | Shared learning records, FSRS, focus catalog and session history. CLI and desktop open the same database. Existing sessions without focus metadata remain readable. |
+| CLI and desktop | The CLI owns tracking, native messaging and cloud requests. Tauri exposes explicit commands to a local HTML/CSS/JS interface. The desktop uses the sibling CLI for the tracker. |
+| Activity sources | Hyprland reports focused windows, Wayland reports idle state. Chromium reports active tabs via native messaging and applies its own blocking rules. Browser blocking and data collection have independent lifecycles. |
+| Execution boundary | The existing challenge runner uses bubblewrap and systemd user limits. Its acceptance suite covers the isolation contract. Keep this boundary intact. [Technical feasibility §8.1](research/technical-feasibility.md) |
+| Data leaving the device | CLI review and practice construct provider requests. Both display the outgoing JSON. Practice includes prior titles and can include retry output, each displayed in the confirmed request body. |
+
+## Pre-M1 snapshot against requirements
+
+P1–P3 specify separate source opt-ins, visible collection state and disclosure before sending. The extension listens for tab changes independently of session state. Its study-site list controls excerpt extraction. The native host validates and persists page messages without consulting an active study or a source preference. A synthetic message on an empty database produced one page row with zero study rows. Window tracking starts with a session. The default AI activity query uses a lower time bound and can include activity after the selected session ended. [Extension](../extension/background.js) · [Storage](../whiteroom-core/src/lib.rs) · [CLI](../whiteroom-core/src/main.rs)
+
+The pilot has held-out day-seven items after an objective is marked done. Generated review questions enter FSRS. Independent 1/7/30-day measurement for generated material remains planned. Use separate held-out forms or objective cohorts, record first unaided response and actual delay, and report missed follow-ups separately. Earlier testing of the same objective can affect later performance. [Cognitive engine §6](research/cognitive-engine.md) · [Independent review](research/independent-review.md)
+
+## M1 implementation
+
+Session creation stores explicit, per-session window and browser consent in SQLite. Both default off, including on upgrade. Revocation is immediate at the write boundary. Inserts carry the study ID. SQLite triggers also reject legacy writes without an authorized study. Window workers are bound to a session ID. The browser asks the host for current consent before querying a tab. Chromium enforces origin permissions and the extension checks the marked site before extracting text. It sends a one-use site grant on the same port before an excerpt. The host consumes that grant and rechecks consent inside the write transaction.
+
+Default cloud context is limited by both study ID and time. Historical rows without a study ID remain in exports and explicit hour-range queries. Each request, including retries, goes through one confirmation function that displays the outgoing JSON before accessing the provider key. Tests inject a recording transport. See the [execution plan](../tasks/current.md).
+
+## Assessment integrity review
+
+The independent source review found that exiting the CLI test early displays feedback for answered items and can present an already displayed unanswered item again. Before using results to claim first-exposure retention, persist first presentation, mark partial blocks and defer feedback until closure. Updating a module can replace item content under the same ID. Freeze reconstructible forms and keep the full personal export, including answer keys, separate from pilot analysis. [Test flow and item storage](../whiteroom-core/src/lib.rs)

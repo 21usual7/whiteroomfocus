@@ -1,0 +1,7 @@
+[workspace]
+members = ["whiteroom-core", "whiteroom-app"]
+resolver = "3"
+
+# Номера строк в панике остаются, полные отладочные символы — нет: target вдвое меньше.
+[profile.dev]
+debug = "line-tables-only"

@@ -1,0 +1,6 @@
+body { width: 260px; margin: 0; padding: 16px; font: 13px/1.45 system-ui, sans-serif; color: #111; background: #fff; }
+h1 { font-size: 13px; letter-spacing: .2em; font-weight: 600; margin: 0 0 14px; }
+#domain { font-weight: 600; margin: 0 0 10px; overflow-wrap: anywhere; }
+button { width: 100%; padding: 8px; border: 1px solid #111; background: #fff; font: inherit; cursor: pointer; }
+button:hover, button:focus-visible { background: #111; color: #fff; }
+.muted { color: #666; margin: 10px 0 0; }

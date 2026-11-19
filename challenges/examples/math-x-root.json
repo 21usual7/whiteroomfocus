@@ -1,0 +1,15 @@
+{
+  "kind": "math",
+  "title": "Корень степени x",
+  "topic": "производная, исследование функции на экстремум",
+  "difficulty": 3,
+  "statement": "Найди наибольшее значение функции f(x) = x^(1/x) при x > 0.",
+  "hints": [
+    "Степень с переменным показателем удобнее исследовать через логарифм.",
+    "ln f(x) = ln(x)/x. Максимум f там же, где максимум ln f.",
+    "(ln x / x)' = (1 − ln x)/x². Где производная равна нулю и меняет знак?",
+    "Ноль при x = e, слева производная > 0, справа < 0 — максимум. f(e) = e^(1/e) ≈ 1.4447."
+  ],
+  "answer": "exp(1/E)",
+  "verify": "from sympy import symbols, log, diff, solve, E, exp, N\nx = symbols('x', positive=True)\ncrit = solve(diff(log(x)/x, x), x)\nassert crit == [E]\nbest = max((k/1000)**(1000/k) for k in range(1, 20000))\nassert abs(best - float(N(exp(1/E)))) < 1e-5\nprint('ok')\n"
+}

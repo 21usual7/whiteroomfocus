@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -eu
+repo=$(cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo"
+
+if [[ ${1:-} == check ]]; then
+    mise exec -- cargo test --locked --offline -p whiteroom-core --bin whiteroom --test pilot
+    node --test tests/browser-consent.test.mjs
+    exit
+fi
+
+case ${1:-} in
+    ''|--status) ;;
+    *) echo "Использование: scripts/supervise [--status]" >&2; exit 2 ;;
+esac
+
+driver="${SUPERVISOR_PY:-$HOME/Downloads/supervisor.py}"
+ready=true
+for tool in git python3 codex mise; do
+    if ! command -v "$tool" >/dev/null; then echo "Не найден $tool."; ready=false; fi
+done
+if [[ ! -r "$driver" ]]; then echo "Не найден $driver."; ready=false; fi
+if [[ $(git rev-parse --show-toplevel 2>/dev/null || true) != "$repo" ]]; then
+    echo "Метаданные Git этого проекта недоступны."
+    ready=false
+elif ! changes=$(git status --porcelain); then
+    echo "Не удалось проверить состояние Git."
+    ready=false
+elif [[ -n "$changes" ]]; then
+    echo "Supervisor требует чистое рабочее дерево."
+    ready=false
+fi
+if ! python3 - <<'PY'
+import json
+from pathlib import Path
+state = json.loads(Path(".agent/state.json").read_text())
+if state.get("status") != "approved_for_implementation":
+    print(f"Запуск приостановлен. Статус этапа: {state.get('status')}")
+    raise SystemExit(1)
+PY
+then ready=false; fi
+
+if [[ $ready != true ]]; then exit 1; fi
+if [[ ${1:-} == --status ]]; then echo "Готов к запуску."; exit; fi
+umask 077
+exec python3 "$driver" --repo "$repo" --iterations 1 --minutes 20 --checks "$repo/scripts/supervise" check
