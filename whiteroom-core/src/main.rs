@@ -20,9 +20,11 @@ const USAGE: &str = "whiteroom — пилот WHITE ROOM
 Сессия:
   start [--windows] [--browser] [тема]   начать с выбранными источниками
   stop                      закончить и показать сводку
-  block [add|rm <домен>]    сайты, блокируемые во время сессии
+  allow <тема>              сайты, доступные во время сессии
+  allow add|rm <тема> <домен>   изменить список для темы
   review [часов] [--attach файл]    вопросы по последней сессии и выбранным материалам
   browser-setup             связать whiteroom с расширением в Chromium
+  tutor-overlay             открыть чат тьютора поверх окон Wayland
 
 Практика:
   challenge add <файл.json> проверить челлендж в песочнице и добавить
@@ -249,13 +251,17 @@ fn start(topic: &str, now: i64, windows: bool, browser: bool) -> Res<()> {
     let db = Db::open(&db_path()?)?;
     let id = db.study_start_with_sources(topic, now, windows, browser)?;
     println!("Сессия «{topic}» началась.");
-    if windows && !whiteroom_core::tracker_start(&std::env::current_exe().map_err(|x| x.to_string())?, id) {
+    let cli = std::env::current_exe().map_err(|x| x.to_string())?;
+    if windows && !whiteroom_core::tracker_start(&cli, id) {
         println!("Трекер окон не запустился.");
     }
-    let block = db.blocked()?;
-    if !block.is_empty() {
-        println!("В Chromium заблокированы (в течение 30 с): {}", block.join(", "));
+    if let Err(error) = whiteroom_core::overlay::start(&cli, id, now) {
+        eprintln!("{error}");
     }
+    println!(
+        "В Chromium разрешены: {}",
+        db.allowed_sites(topic)?.join(", ")
+    );
     println!("Закончить: whiteroom stop");
     Ok(())
 }
@@ -340,17 +346,33 @@ fn native() -> Res<()> {
 }
 
 fn browser_setup() -> Res<()> {
-    let exe = std::env::current_exe().and_then(|p| p.canonicalize()).map_err(|x| x.to_string())?;
-    let home = std::env::var("HOME").map_err(|_| "не задан HOME")?;
-    let dir = std::path::PathBuf::from(home).join(".config/chromium/NativeMessagingHosts");
+    let exe = std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .map_err(|x| x.to_string())?;
+    let dir = std::env::var_os("CHROME_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME").filter(|dir| !dir.is_empty()))
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".config"))
+        })
+        .ok_or("не задан HOME")?
+        .join("chromium/NativeMessagingHosts");
     std::fs::create_dir_all(&dir).map_err(|x| x.to_string())?;
     let manifest = serde_json::json!({
         "name": HOST, "description": "WHITE ROOM", "type": "stdio",
         "path": exe, "allowed_origins": [format!("chrome-extension://{EXTENSION_ID}/")]
     });
     let file = dir.join(format!("{HOST}.json"));
-    std::fs::write(&file, serde_json::to_string_pretty(&manifest).map_err(|x| x.to_string())?).map_err(|x| x.to_string())?;
-    println!("Записал {}\nТеперь chromium://extensions → «Режим разработчика» → «Загрузить распакованное» → папка extension/.", file.display());
+    std::fs::write(
+        &file,
+        serde_json::to_string_pretty(&manifest).map_err(|x| x.to_string())?,
+    )
+    .map_err(|x| x.to_string())?;
+    println!(
+        "Записал {}\nТеперь chromium://extensions → «Режим разработчика» → «Загрузить распакованное» → папка extension/.",
+        file.display()
+    );
     Ok(())
 }
 
@@ -454,11 +476,20 @@ fn run() -> Res<()> {
             start(if topic.is_empty() { "без темы" } else { &topic }, now, args.contains(&"--windows"), args.contains(&"--browser"))?;
         }
         ["stop"] => stop(now)?,
-        ["block"] => println!("{}", db()?.blocked()?.join("\n")),
-        ["block", "add", d] => db()?.block_add(d)?,
-        ["block", "rm", d] => {
-            if !db()?.block_rm(d)? {
-                return Err(format!("{d} не в списке"));
+        ["allow", "add", topic, domain] => db()?.site_allow(topic, domain)?,
+        ["allow", "rm", topic, domain] => db()?.site_remove(topic, domain)?,
+        ["allow", topic] => println!("{}", db()?.allowed_sites(topic)?.join("\n")),
+        ["tutor-overlay"] => {
+            let cli = std::env::current_exe().map_err(|err| err.to_string())?;
+            whiteroom_core::overlay::open(&db_path()?, &cli)?;
+        }
+        ["timer-watch", session] | ["tutor-stdio", session] => {
+            let session = if *session == "idle" { None } else { Some(id(session)?) };
+            let path = db_path()?;
+            if a[0] == "timer-watch" {
+                whiteroom_core::overlay::watch(&path, session)?;
+            } else {
+                whiteroom_core::overlay::tutor_stdio(&path, session)?;
             }
         }
         _ => return Err(USAGE.into()),

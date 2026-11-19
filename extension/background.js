@@ -17,13 +17,17 @@ function refresh() {
       if (next !== capture) { generation++; last = ""; }
       capture = next;
       chrome.storage.session.set({ hostOk: !!r.ok, hostError: r.error || "", session: !!r.session, capture });
-      if (r.ok && r.request === pendingState && typeof r.session === 'boolean' && Array.isArray(r.block)) {
-        blockingHostConfirmed = true;
-        enqueueBlocking(async () => {
-          if (connection === port && r.request === pendingState) {
-            await applyBlock(r.session ? r.block : []);
-          }
-        }).catch(() => {});
+      if (r.ok && r.request === pendingState && typeof r.session === 'boolean') {
+        blockingHostConfirmed = Array.isArray(r.allowed) && (!r.session || r.allowed.length > 0);
+        if (blockingHostConfirmed) {
+          enqueueBlocking(async () => {
+            if (connection === port && r.request === pendingState) {
+              await applyPolicy(r.session ? r.allowed : null);
+            }
+          }).catch(() => {});
+        } else {
+          blockingError = 'Обнови локальный процесс WHITE ROOM для списков разрешённых сайтов.';
+        }
       }
       if (capture !== null && r.request === pendingState) reportActive(connection, capture, generation);
     });
@@ -43,6 +47,7 @@ function refresh() {
 const FIRST_BLOCK_RULE = 1_000_000;
 const LAST_LEGACY_RULE = 30_000;
 const FRAME_TYPES = ['main_frame', 'sub_frame'];
+const WEB_URL = '^https?://';
 let blockingWork = Promise.resolve();
 let blockingError = '';
 let blockingHostConfirmed = false;
@@ -53,30 +58,35 @@ function enqueueBlocking(action) {
   return work;
 }
 
-function managedFilter(rule) {
+function managedRule(rule) {
   const { action, condition } = rule;
   const frames = condition?.resourceTypes;
   if (action?.type !== 'block' || (rule.priority ?? 1) !== 1 ||
-      Object.keys(condition ?? {}).some(key => !['urlFilter', 'resourceTypes'].includes(key)) ||
-      frames?.length !== FRAME_TYPES.length || !FRAME_TYPES.every(frame => frames.includes(frame)) ||
-      !/^\|\|[a-z0-9.-]+\^$/.test(condition.urlFilter)) return null;
-  return rule.id >= FIRST_BLOCK_RULE || (rule.id >= 1 && rule.id <= LAST_LEGACY_RULE)
-    ? condition.urlFilter : null;
+      frames?.length !== FRAME_TYPES.length || !FRAME_TYPES.every(type => frames.includes(type))) return false;
+  const keys = Object.keys(condition);
+  if (rule.id >= FIRST_BLOCK_RULE && condition.regexFilter === WEB_URL && keys.length === 3 &&
+      Array.isArray(condition.excludedRequestDomains)) return true;
+  return (rule.id >= FIRST_BLOCK_RULE || (rule.id >= 1 && rule.id <= LAST_LEGACY_RULE)) &&
+    keys.length === 2 && /^\|\|[a-z0-9.-]+\^$/.test(condition.urlFilter);
 }
 
-async function applyBlock(domains) {
-  const filters = [...new Set(domains)].sort().map(domain => `||${domain}^`);
+async function applyPolicy(allowed) {
+  const domains = allowed && [...new Set(allowed)].sort();
   try {
     const installed = await chrome.declarativeNetRequest.getDynamicRules();
-    const managed = installed.filter(managedFilter);
-    const activeFilters = managed.map(managedFilter).sort();
-    if (activeFilters.length !== filters.length || activeFilters.some((filter, i) => filter !== filters[i])) {
-      const occupied = new Set(installed.filter(rule => !managedFilter(rule)).map(rule => rule.id));
+    const managed = installed.filter(managedRule);
+    const current = managed[0]?.condition.excludedRequestDomains;
+    const matches = domains === null ? managed.length === 0 : managed.length === 1 &&
+      current?.length === domains.length && [...current].sort().every((domain, index) => domain === domains[index]);
+    if (!matches) {
+      const occupied = new Set(installed.filter(rule => !managedRule(rule)).map(rule => rule.id));
       let id = FIRST_BLOCK_RULE;
-      const addRules = filters.map(urlFilter => {
-        while (occupied.has(id)) id++;
-        return { id: id++, action: { type: 'block' }, condition: { urlFilter, resourceTypes: FRAME_TYPES } };
-      });
+      while (occupied.has(id)) id++;
+      const addRules = domains === null ? [] : [{
+        id,
+        action: { type: 'block' },
+        condition: { regexFilter: WEB_URL, excludedRequestDomains: domains, resourceTypes: FRAME_TYPES },
+      }];
       await chrome.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: managed.map(rule => rule.id),
         addRules,
@@ -92,13 +102,13 @@ async function applyBlock(domains) {
 async function blockingStatus(release) {
   if (release && !blockingHostConfirmed) {
     try {
-      await applyBlock([]);
+      await applyPolicy(null);
     } catch {
       // Read back actual rules so the popup can offer another attempt.
     }
   }
   const rules = await chrome.declarativeNetRequest.getDynamicRules();
-  const count = rules.filter(managedFilter).length;
+  const count = rules.filter(managedRule).length;
   return { count, canRelease: !blockingHostConfirmed && count > 0, error: blockingError };
 }
 

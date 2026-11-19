@@ -7,6 +7,11 @@
     "allow-status",
     "allow-focus-catalog",
     "allow-focus-history",
+    "allow-tutor-context",
+    "allow-tutor-prepare",
+    "allow-tutor-send",
+    "allow-tutor-cancel",
+    "allow-briefing",
     "allow-study-active",
     "allow-study-start",
     "allow-study-stop",
@@ -19,8 +24,9 @@
     "allow-next-hint",
     "allow-solve",
     "allow-export-files",
-    "allow-blocked",
-    "allow-block-add",
-    "allow-block-rm"
+    "allow-site-topics",
+    "allow-allowed-sites",
+    "allow-site-allow",
+    "allow-site-remove"
   ]
 }

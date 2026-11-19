@@ -211,23 +211,108 @@ fn native_framing() {
 }
 
 #[test]
-fn study_session_and_blocking() {
-    let db = Db::open(tmp("study").join("db.sqlite").to_str().unwrap()).unwrap();
-    db.block_add("www.YouTube.com").unwrap();
-    db.block_add("reddit.com").unwrap();
-    for bad in ["youtube", "a b.com", "x.com/'", ""] {
-        assert!(db.block_add(bad).is_err(), "{bad}");
+fn session_allows_google_and_the_current_topics_sites() {
+    let path = tmp("study").join("db.sqlite");
+    let db = Db::open(path.to_str().unwrap()).unwrap();
+    db.site_allow("Математика", "www.Docs.Example.org").unwrap();
+    db.site_allow("Сети", "network.example").unwrap();
+    for domain in ["youtube", "a b.com", "x.com/'", "a..com", "-a.com", ""] {
+        assert!(db.site_allow("Математика", domain).is_err(), "{domain}");
     }
-    assert_eq!(db.blocked().unwrap(), ["reddit.com", "youtube.com"]);
-    assert_eq!(db.browser_state().unwrap(), serde_json::json!({"session": false, "block": [], "capture": null}), "вне сессии ничего не блокируется");
-    db.study_start("ret2win", 100).unwrap();
+    assert!(db.site_allow(" ", "example.com").is_err());
+    assert!(db.site_remove("Математика", "google.com").is_err());
+    assert_eq!(
+        db.allowed_sites(" математика ").unwrap(),
+        ["google.com", "docs.example.org"]
+    );
+    assert_eq!(
+        db.browser_state().unwrap(),
+        serde_json::json!({ "session": false, "allowed": [], "capture": null })
+    );
+    db.study_start("Математика", 100).unwrap();
     assert!(db.study_start("ещё", 101).is_err());
-    assert_eq!(db.browser_state().unwrap()["block"].as_array().unwrap().len(), 2);
+    drop(db);
+    let db = Db::open(path.to_str().unwrap()).unwrap();
+    assert_eq!(
+        db.browser_state().unwrap(),
+        serde_json::json!({
+            "session": true, "allowed": ["google.com", "docs.example.org"], "capture": null
+        })
+    );
     assert_eq!(db.study_last_start().unwrap(), Some(100));
-    assert_eq!(db.study_stop(200).unwrap(), (100, "ret2win".to_string()));
+    assert_eq!(db.study_stop(200).unwrap(), (100, "Математика".to_string()));
     assert!(db.study_stop(201).is_err());
-    assert_eq!(db.browser_state().unwrap()["session"], false);
-    assert!(db.block_rm("reddit.com").unwrap() && !db.block_rm("reddit.com").unwrap());
+    db.study_start("Сети", 300).unwrap();
+    assert_eq!(
+        db.browser_state().unwrap()["allowed"],
+        serde_json::json!(["google.com", "network.example"])
+    );
+    db.site_remove("сети", "WWW.NETWORK.EXAMPLE").unwrap();
+    assert_eq!(
+        db.browser_state().unwrap()["allowed"],
+        serde_json::json!(["google.com"])
+    );
+    db.study_stop(400).unwrap();
+    db.focus_start("study", "Сети и протоколы", "", 500)
+        .unwrap();
+    assert_eq!(
+        db.browser_state().unwrap()["allowed"],
+        serde_json::json!(["google.com"])
+    );
+}
+
+#[test]
+fn wayland_tutor_uses_the_session_chat_without_credentials() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    let path = tmp("wayland-tutor").join("db.sqlite");
+    let db = Db::open(path.to_str().unwrap()).unwrap();
+    let id = db
+        .focus_start_with_sources("hunt", "Анализ журналов", "", 100, false, false)
+        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_whiteroom"))
+        .args(["tutor-stdio", &id.to_string()])
+        .env("WHITEROOM_DB", &path)
+        .env_remove("ANTHROPIC_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut exchange = |request: serde_json::Value| -> serde_json::Value {
+        writeln!(input, "{request}").unwrap();
+        input.flush().unwrap();
+        let mut response = String::new();
+        output.read_line(&mut response).unwrap();
+        serde_json::from_str(&response).unwrap()
+    };
+    assert_eq!(
+        exchange(serde_json::json!({ "method": "context" }))["value"]["suggestedConceptId"],
+        "logs"
+    );
+    let preview = exchange(serde_json::json!({
+        "method": "prepare", "question": "Что такое корреляция?", "conceptId": null
+    }));
+    assert_eq!(preview["value"]["local"], true);
+    let answer = exchange(serde_json::json!({
+        "method": "send", "previewId": preview["value"]["previewId"]
+    }));
+    assert_eq!(answer["value"]["sessionId"], id);
+    let history = tutor::context(&db).unwrap();
+    assert_eq!(history.messages.len(), 2);
+    assert!(history.messages[1].text.contains("наблюдения меняются вместе"));
+
+    db.stop_session(Some(id), 101).unwrap();
+    assert!(
+        exchange(serde_json::json!({ "method": "context" }))["error"]
+            .as_str()
+            .unwrap()
+            .contains("Сессия изменилась")
+    );
+    drop(input);
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
@@ -384,4 +469,31 @@ fn native_host_discards_stale_events_and_consumes_site_permission_once() {
     assert_eq!(pages.len(), 3);
     assert_eq!(pages[0]["excerpt"], "private fixture");
     assert!(pages[1]["excerpt"].is_null() && pages[2]["excerpt"].is_null());
+}
+
+#[test]
+fn briefing_shows_last_active_day() {
+    let db = Db::open(tmp("brief").join("db.sqlite").to_str().unwrap()).unwrap();
+    assert!(db.briefing(0, 0).unwrap()["last"].is_null(), "пустая база — без выдуманных данных");
+
+    let t0 = 1_800_000_000; // 08:00 UTC
+    db.load(&Module::parse(MODULE).unwrap(), t0).unwrap();
+    let id = db.focus_start_with_sources("hunt", "Анализ журналов", "Логи nginx", t0, false, false).unwrap();
+    db.stop_session(Some(id), t0 + 1800).unwrap();
+    let it = &db.new_items(1).unwrap()[0];
+    run_session(&db, &mut Cursor::new(format!("1\n{}\n", it.answer[0])), &mut Vec::new(), t0 + 2000, 1).unwrap();
+
+    // Через три дня брифинг показывает тот же день, а не пустое «вчера».
+    let b = db.briefing(t0 + 3 * DAY, 0).unwrap();
+    let last = &b["last"];
+    assert_eq!(last["start"], t0 - 28_800);
+    assert_eq!(last["studies"][0], serde_json::json!(["Логи nginx", "hunt", "Анализ журналов", 30]));
+    assert_eq!((last["answered"].as_i64(), last["correct"].as_i64()), (Some(1), Some(1)));
+    assert_eq!(last["facts"][0][1], serde_json::json!(it.explain));
+    assert_eq!(b["week"]["minutes"], 30);
+    assert!(b["plan"]["due"].as_i64().unwrap() <= 1 && b["upcoming"]["week"].as_i64().unwrap() >= 1, "{b}");
+
+    // Сегодняшние занятия во «вчера» не попадают; смещение часового пояса сдвигает границу дня.
+    assert!(db.briefing(t0 + 3600, 0).unwrap()["last"].is_null());
+    assert_eq!(db.briefing(t0 + 3600, -9 * 3600).unwrap()["last"]["start"], t0 - 28_800 + 9 * 3600 - DAY);
 }

@@ -1,4 +1,4 @@
-// Живой фон WHITE ROOM: голографический мозг из нейронов на WebGL 1 без зависимостей.
+// Живой фон WHITE ROOM: нейронная сфера с голографическим мозгом внутри, WebGL 1 без зависимостей.
 // Это декоративная модель, а не активность мозга пользователя. От данных зависят только
 // яркость шести областей (минуты по режимам), частота импульсов (карточки к повторению)
 // и вспышки после верных ответов и решённых задач.
@@ -65,6 +65,8 @@
         col = mix(mix(blue, silver, s), cyan, max(sel, hov * 0.6));
         a = 0.17 + 0.12 * w + 0.14 * sel + 0.08 * hov;
         size = 1.7 + 1.8 * s;
+        // Оболочка сферы тусклее коры, чтобы мозг внутри читался.
+        if (kind > 1.1) a *= 0.5;
       } else if (kind < 2.5) {
         col = mix(mix(mix(silver, blue, w), cyan, max(sel, hov * 0.6)), spark, aAct);
         a = 0.28 + 0.3 * w + 0.35 * sel + 0.15 * hov + 1.4 * aAct;
@@ -76,7 +78,7 @@
       } else {
         col = spark;
         a = 1.0 - uMorph;
-        size = 9.0;
+        size = 12.0;
       }
       size *= uPx * 7.0 / z;
       // Слишком близкие частицы гаснут, чтобы не ложиться пятнами на текст.
@@ -128,7 +130,8 @@
   let seed = 20261119;
   const rand = () => (seed = seed * 16807 % 2147483647) / 2147483647;
   const gauss = () => Math.sqrt(-2 * Math.log(rand() + 1e-9)) * Math.cos(2 * Math.PI * rand());
-  const SCALE = 2.6;
+  const SCALE = 2.1;
+  const R = 2.75;
 
   // Квадрат «эллипсоидного расстояния»: < 1 внутри.
   function cerebrum(x, y, z) {
@@ -184,7 +187,21 @@
     if (c > 0.55 && c < 1) return Math.abs(Math.sin(y * 70 + z * 8)) < 0.35;
     return stem(x, y, z) < 1 && rand() < 0.4;
   }, 9000);
-  const nN = neurons.length, nD = cortex.length, nA = 2600;
+  // Сфера: нейроны по спирали Фибоначчи, области — по направлению, как у долей мозга.
+  const nB = neurons.length, nS = 900;
+  const shell = [];
+  for (let i = 0; i < nS; i++) {
+    const y = 1 - 2 * (i + 0.5) / nS, r = Math.sqrt(1 - y * y), phi = i * 2.39996 + gauss() * 0.04;
+    const k = R * (1 + gauss() * 0.012);
+    shell.push([Math.cos(phi) * r * k, y * k, Math.sin(phi) * r * k]);
+  }
+  const shellDust = [];
+  for (let i = 0; i < 1800; i++) {
+    const y = rand() * 2 - 1, r = Math.sqrt(1 - y * y), phi = rand() * Math.PI * 2;
+    shellDust.push([Math.cos(phi) * r * R, y * R, Math.sin(phi) * r * R]);
+  }
+  const shellRegion = (p) => region(p[0] / R * 0.8, p[1] / R * 0.7, p[2] / R);
+  const nN = nB + nS, nD = cortex.length + shellDust.length, nA = 2600;
 
   // Кольца, в которые всё выстраивается при входе в комнату (переход не меняется).
   const tilt = [0, 0.5, -0.35];
@@ -211,7 +228,13 @@
     put(data, q, ring(), rand(), nodeRegion[i], 2);
     return q;
   });
+  shell.forEach((p, i) => {
+    nodeRegion[nB + i] = shellRegion(p);
+    put(data, p, ring(), rand(), nodeRegion[nB + i], 2);
+    nodePos.push(p);
+  });
   for (const p of cortex) put(data, scaled(p), ring(), rand(), region(...p), 1);
+  for (const p of shellDust) put(data, p, ring(), rand(), shellRegion(p), 1.2);
   for (let i = 0; i < nA; i++) {
     const r = 4 + Math.pow(rand(), 0.7) * 5;
     const a = rand() * Math.PI * 2;
@@ -220,7 +243,7 @@
 
   // ───── Граф: соседи в коре, длинные волокна от глубины к коре и через мозолистое тело. ─────
   const edges = [];
-  const adjacency = neurons.map(() => []);
+  const adjacency = Array.from({ length: nN }, () => []);
   const has = new Set();
   const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
   function link(a, b, control) {
@@ -234,16 +257,37 @@
     adjacency[a].push(e);
     adjacency[b].push(e);
   }
-  const reach = (0.2 * SCALE) ** 2;
-  for (let i = 0; i < nN; i++) {
-    const near = [];
-    for (let j = 0; j < nN; j++) {
-      if (j === i) continue;
-      const d = dist2(nodePos[i], nodePos[j]);
-      if (d < reach) near.push([d, j]);
+  // Соседи ищутся отдельно в мозге и на сфере; дуги сферы изгибаются по её поверхности.
+  function neighbours(from, to, reach, k, arc) {
+    for (let i = from; i < to; i++) {
+      const near = [];
+      for (let j = from; j < to; j++) {
+        if (j === i) continue;
+        const d = dist2(nodePos[i], nodePos[j]);
+        if (d < reach) near.push([d, j]);
+      }
+      near.sort((x, y) => x[0] - y[0]);
+      for (const [, j] of near.slice(0, k)) {
+        if (!arc) { link(i, j); continue; }
+        const mid = nodePos[i].map((v, n) => (v + nodePos[j][n]) / 2);
+        const m2 = mid[0] ** 2 + mid[1] ** 2 + mid[2] ** 2;
+        link(i, j, mid.map(v => v * R * R / m2));
+      }
     }
-    near.sort((x, y) => x[0] - y[0]);
-    for (const [, j] of near.slice(0, 2)) link(i, j);
+  }
+  neighbours(0, nB, (0.2 * SCALE) ** 2, 2, false);
+  neighbours(nB, nN, 0.62 ** 2, 3, true);
+  // Мосты от коры к оболочке: импульсы выходят из мозга на сферу и возвращаются.
+  for (let made = 0; made < 60;) {
+    const a = Math.floor(rand() * deepStart);
+    const pa = nodePos[a];
+    let best = -1, bestD = Infinity;
+    for (let j = nB; j < nN; j++) {
+      const d = dist2(pa.map(v => v * R / Math.hypot(...pa)), nodePos[j]);
+      if (d < bestD) { bestD = d; best = j; }
+    }
+    link(a, best, pa.map((v, k) => (v + nodePos[best][k]) / 2 * 1.08));
+    made += 1;
   }
   for (let i = 0; i < 90; i++) {
     const a = deepStart + Math.floor(rand() * (deepEnd - deepStart));
@@ -275,7 +319,7 @@
   const lineVerts = [];
   const lineEdge = [];
   edges.forEach((e, i) => {
-    const steps = e.curved ? 6 : 1;
+    const steps = e.curved ? 5 : 1;
     for (let s = 0; s < steps; s++) {
       lineVerts.push(bezier(e, s / steps, [0, 0, 0]), bezier(e, (s + 1) / steps, [0, 0, 0]));
       lineEdge.push(i, i);
@@ -326,14 +370,15 @@
 
   // ───── Сцены и переходы (без изменений по смыслу). ─────
   const scenes = {
-    dash: { morph: 0, light: 0, quiet: 0, dim: 0, zoom: 0.88, shift: 0.36 },
+    awake: { morph: 0, light: 0, quiet: 0, dim: 0.4, zoom: 0.95, shift: 0 },
+    dash: { morph: 0, light: 0, quiet: 0, dim: 0, zoom: 0.8, shift: 0.36 },
     setup: { morph: 0.12, light: 0, quiet: 0, dim: 0.15, zoom: 0.9, shift: -0.4 },
     enter: { morph: 1, light: 0, quiet: 0, dim: 0, zoom: 1.05, shift: 0 },
     room: { morph: 1, light: 1, quiet: 1, dim: 0, zoom: 0.9, shift: 0 },
     tab: { morph: 0, light: 0, quiet: 0.5, dim: 0.65, zoom: 0.75, shift: 0 },
   };
   // Переходы идут по времени, а не по кадрам: на слабом GPU они не растягиваются.
-  const cur = { morph: 0, light: 0, intro: 0, quiet: 0, dim: 0, zoom: 0.88, shift: 0.36, core: 0 };
+  const cur = { morph: 0, light: 0, intro: 0, quiet: 0, dim: 0, zoom: 0.8, shift: 0.36, core: 0 };
   const goal = { ...cur, intro: 1 };
   let from = { ...cur }, tweenAt = performance.now(), tweenMs = 2200, pulseAt = -1e9;
   const ease = (x) => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
@@ -361,7 +406,7 @@
       const chance = prefer === undefined ? 0.25 + weights[g] + (g === mode ? 0.6 : 0) : (g === prefer ? 1 : 0.02);
       if (rand() < chance && adjacency[i].length) return i;
     }
-    return Math.floor(rand() * deepStart);
+    return Math.floor(rand() * nN);
   }
   function fire(node, ttl, mark = false) {
     nodeAct[1 + node] = 1;

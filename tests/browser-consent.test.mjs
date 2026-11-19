@@ -41,7 +41,7 @@ test("browser reads only with a current host reply and origin permission", async
   vm.runInNewContext(readFileSync(new URL("../extension/background.js", import.meta.url), "utf8"), { chrome, URL });
   async function poll(capture) {
     chrome.alarms.onAlarm.fire();
-    port.onMessage.fire({ ok: true, capture, request: sent.at(-1).request, block: [] });
+    port.onMessage.fire({ ok: true, capture, request: sent.at(-1).request, session: capture !== null, allowed: capture === null ? [] : ["google.com"] });
     await new Promise(resolve => setImmediate(resolve));
   }
   const pages = () => sent.filter(m => m.type === "page");

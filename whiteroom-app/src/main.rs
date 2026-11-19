@@ -3,9 +3,11 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::ipc::{InvokeResponseBody, IpcResponse};
 use tauri::utils::acl::Value;
+use whiteroom_core::tutor::Tutor;
 use whiteroom_core::{Db, Res};
 
 static STUDY: Mutex<()> = Mutex::new(());
+static TUTOR: Tutor = Tutor::new();
 
 fn open_db() -> Res<Db> {
     if let Ok(path) = std::env::var("WHITEROOM_DB") {
@@ -55,6 +57,45 @@ async fn focus_history() -> Res<String> {
 }
 
 #[tauri::command]
+async fn tutor_context() -> Res<String> {
+    json(whiteroom_core::tutor::context(&open_db()?)?)
+}
+
+#[tauri::command]
+async fn tutor_prepare(
+    session_id: Option<i64>,
+    question: Option<String>,
+    concept_id: Option<String>,
+) -> Res<String> {
+    json(TUTOR.prepare(
+        &open_db()?,
+        session_id,
+        question.as_deref(),
+        concept_id.as_deref(),
+    )?)
+}
+
+#[tauri::command]
+async fn tutor_send(preview_id: String) -> Res<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = open_db()?;
+        json(TUTOR.send(&db, &preview_id, whiteroom_core::tutor::request_claude)?)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn tutor_cancel(preview_id: String) -> Res<()> {
+    TUTOR.cancel(&preview_id)
+}
+
+#[tauri::command]
+async fn briefing(offset: i64) -> Res<String> {
+    json(open_db()?.briefing(now(), offset)?)
+}
+
+#[tauri::command]
 async fn study_start(
     topic: String,
     mode: String,
@@ -75,11 +116,13 @@ async fn study_start(
         let id = open_db()?
             .focus_start_with_sources(&mode, &direction, topic, started, windows, browser)?;
         let tracking = !windows || whiteroom_core::tracker_start(&cli, id);
+        let timer_error = whiteroom_core::overlay::start(&cli, id, started).err();
         json((
             started,
             if topic.is_empty() { &direction } else { topic },
             tracking,
             (id, windows, browser),
+            timer_error,
         ))
     })
     .await
@@ -234,22 +277,23 @@ async fn export_files(id: i64) -> Res<String> {
 }
 
 #[tauri::command]
-async fn blocked() -> Res<String> {
-    json(open_db()?.blocked()?)
+async fn site_topics() -> Res<String> {
+    json(open_db()?.site_topics()?)
 }
 
 #[tauri::command]
-async fn block_add(domain: String) -> Res<String> {
-    open_db()?.block_add(&domain)?;
-    Ok(String::new())
+async fn allowed_sites(topic: String) -> Res<String> {
+    json(open_db()?.allowed_sites(&topic)?)
 }
 
 #[tauri::command]
-async fn block_rm(domain: String) -> Res<String> {
-    if !open_db()?.block_rm(&domain)? {
-        return Err(format!("«{domain}» не в списке"));
-    }
-    Ok(String::new())
+async fn site_allow(topic: String, domain: String) -> Res<()> {
+    open_db()?.site_allow(&topic, &domain)
+}
+
+#[tauri::command]
+async fn site_remove(topic: String, domain: String) -> Res<()> {
+    open_db()?.site_remove(&topic, &domain)
 }
 
 fn main() {
@@ -258,6 +302,11 @@ fn main() {
             status,
             focus_catalog,
             focus_history,
+            tutor_context,
+            tutor_prepare,
+            tutor_send,
+            tutor_cancel,
+            briefing,
             study_active,
             study_start,
             study_stop,
@@ -270,9 +319,10 @@ fn main() {
             next_hint,
             solve,
             export_files,
-            blocked,
-            block_add,
-            block_rm
+            site_topics,
+            allowed_sites,
+            site_allow,
+            site_remove
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить WHITE ROOM");

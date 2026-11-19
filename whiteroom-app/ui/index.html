@@ -19,6 +19,7 @@
         <button type="button" aria-controls="reviews" aria-pressed="false">Повторения</button>
         <button type="button" aria-controls="practice" aria-pressed="false">Практика</button>
         <button type="button" aria-controls="sites" aria-pressed="false">Сайты</button>
+        <button type="button" aria-controls="tutor" aria-pressed="false">Тьютор</button>
       </nav>
       <button type="button" id="motion" class="motion">Фон: живой</button>
     </header>
@@ -31,7 +32,22 @@
           <button type="button" id="open-setup" class="enter"><span class="aperture" aria-hidden="true"></span>Войти в комнату</button>
           <dl id="readouts" class="readouts"></dl>
           <p class="legend">Декоративная модель, не твоя мозговая активность. Шесть областей — режимы фокуса, их яркость — минуты в последних сессиях. Импульсов больше, когда есть карточки к повторению. Верный ответ усиливает связи до закрытия окна.</p>
+          <button type="button" id="replay-awake" class="replay">Утренний брифинг</button>
         </div>
+        <aside class="panels" aria-label="Состояние обучения">
+          <section class="panel" id="panel-plan" aria-labelledby="plan-heading">
+            <h2 id="plan-heading">Цели на сегодня</h2>
+            <ul id="plan"></ul>
+          </section>
+          <section class="panel" id="panel-notes" aria-labelledby="notes-heading">
+            <h2 id="notes-heading">Заметки и находки</h2>
+            <div id="notes"></div>
+          </section>
+          <section class="panel" id="panel-memory" aria-labelledby="memory-heading">
+            <h2 id="memory-heading">Память</h2>
+            <div id="memory"></div>
+          </section>
+        </aside>
         <fieldset id="study-controls">
         <form id="start-study" hidden>
           <div class="protocol-head">
@@ -53,6 +69,7 @@
             <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
             <label><input id="capture-browser" type="checkbox"> Вкладки и выдержки с учебных сайтов</label>
           </fieldset>
+          <button type="button" id="edit-topic-sites">Разрешённые сайты</button>
           <button class="primary">Начать сессию</button>
         </form>
         <div id="active-study" hidden>
@@ -67,6 +84,7 @@
             <p id="dial-goal"></p>
           </div>
           <div id="capture-status"></div>
+          <button type="button" id="open-tutor" class="tutor-call" aria-haspopup="dialog">Спросить тьютора</button>
           <button type="button" id="stop-study">Закончить</button>
         </div>
         </fieldset>
@@ -100,17 +118,43 @@
       </fieldset>
       <p class="notice" id="practice-message" role="status"></p>
     </section>
+    <section id="tutor" aria-label="ИИ-тьютор" hidden>
+      <div id="tutor-page"></div>
+    </section>
     <section id="sites" aria-label="Сайты" hidden>
-      <p>Блокируются в Chromium только во время сессии.</p>
+      <p>Во время сессии Chromium открывает только разрешённые сайты. Google доступен для любой темы.</p>
       <fieldset id="site-controls">
+        <form id="view-sites">
+          <label>Тема сессии <input id="site-topic" list="site-topics" maxlength="200" required></label>
+          <datalist id="site-topics"></datalist>
+          <button>Показать</button>
+        </form>
         <form id="add-site">
-          <label>Домен <input name="domain" placeholder="youtube.com" required></label>
-          <button>Добавить</button>
+          <label>Домен <input name="domain" placeholder="docs.example.org" required></label>
+          <button>Разрешить</button>
         </form>
         <ul id="site-list"></ul>
       </fieldset>
       <p class="notice" id="sites-message" role="status"></p>
     </section>
   </main>
+  <div id="tutor-dialog" role="dialog" aria-modal="true" aria-labelledby="tutor-dialog-title" hidden>
+    <div class="tutor-head">
+      <h2 id="tutor-dialog-title">Тьютор · теория</h2>
+      <button type="button" id="close-tutor" aria-label="Закрыть тьютора">Закрыть</button>
+    </div>
+    <div id="tutor-dialog-body"></div>
+  </div>
+  <div id="awake" role="dialog" aria-modal="true" aria-labelledby="awake-title" hidden>
+    <div class="awake-inner">
+      <p class="eyebrow" id="awake-date"></p>
+      <h2 id="awake-title"></h2>
+      <div id="awake-body"></div>
+      <div class="awake-actions">
+        <button type="button" id="awake-go" class="enter"><span class="aperture" aria-hidden="true"></span>Начать день</button>
+        <button type="button" id="awake-skip">Пропустить · Esc</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

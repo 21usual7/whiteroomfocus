@@ -30,6 +30,16 @@ CLI review and math practice extract caller-selected UTF-8 text attachments loca
 
 The extension reconciles installed dynamic rules after confirmed host state and retries failed updates on later confirmed replies. During loss of host confirmation, the popup can explicitly release WHITE ROOM rules through the extension. It reports the installed rule count after the change. Reconnection reconciles with the current session again. Browser capture still uses its existing per-session and per-site permissions.
 
+During a focus session, the native host sends the allowlist for its effective topic. Every topic includes `google.com`. One Chromium rule blocks other HTTP and HTTPS page and frame navigations. Topic allowlists use a new SQLite table. The previous domain list stays available in historical exports.
+
+On Hyprland, a Quickshell Layer Shell surface shows elapsed time in the overlay layer. The CLI watches the active session ID in SQLite and the overlay closes when that ID stops being active.
+
+## Theory tutor
+
+The Rust tutor answers catalog questions using vetted definitions, comparisons and neutral examples. During a focus session it suggests a concept from the selected mode and direction. Outside a session, other questions may be mapped by Claude to a concept and format after the user confirms the exact JSON. Both desktop and overlay display the selected local lesson. Drafts are kept in memory, expire after two minutes and are bound to the session state.
+
+The Tauri chat and the Quickshell overlay share the tutor's SQLite history for the current local day. The Wayland popup communicates with the Rust tutor over standard input and output. It opens from the timer during a session, or from the CLI, and closes when the session scope changes.
+
 ## Assessment integrity review
 
 The independent source review found that exiting the CLI test early displays feedback for answered items and can present an already displayed unanswered item again. Before using results to claim first-exposure retention, persist first presentation, mark partial blocks and defer feedback until closure. Updating a module can replace item content under the same ID. Freeze reconstructible forms and keep the full personal export, including answer keys, separate from pilot analysis. [Test flow and item storage](../whiteroom-core/src/lib.rs)

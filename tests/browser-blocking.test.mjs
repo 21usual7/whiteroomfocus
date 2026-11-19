@@ -45,8 +45,8 @@ function worker(initial) {
     state,
     request: () => alarm(),
     disconnect: () => disconnect(),
-    receive: (session, block, request = state.requests.at(-1).request) =>
-      receive({ ok: true, request, session, block, capture: null }),
+    receive: (session, allowed, request = state.requests.at(-1).request) =>
+      receive({ ok: true, request, session, allowed, capture: null }),
     message: type => new Promise(resolve => {
       assert.equal(message({ type }, {}, resolve), true);
     }),
@@ -59,9 +59,11 @@ test('restart and session end reconcile installed WHITE ROOM rules only', async 
   assert.equal((await run.message('blocking-status')).count, 0);
   assert.deepEqual(run.state.rules, [other]);
   run.request();
-  run.receive(true, ['study.example']);
+  run.receive(true, ['google.com', 'study.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
-  assert.equal(run.state.rules[1].condition.urlFilter, '||study.example^');
+  const { condition } = run.state.rules[1];
+  assert.equal(condition.regexFilter, '^https?://');
+  assert.deepEqual(Array.from(condition.excludedRequestDomains), ['google.com', 'study.example']);
   run.request();
   run.receive(false, []);
   assert.equal((await run.message('blocking-status')).count, 0);
@@ -71,22 +73,24 @@ test('restart and session end reconcile installed WHITE ROOM rules only', async 
 test('a failed update can retry the same desired state and stale replies are ignored', async () => {
   const run = worker([other]);
   run.state.failures = 1;
-  run.receive(true, ['study.example']);
+  run.receive(true, ['google.com', 'study.example']);
   assert.match((await run.message('blocking-status')).error, /Не удалось обновить/);
   run.request();
   run.receive(true, ['stale.example'], 1);
   assert.equal((await run.message('blocking-status')).count, 0);
-  run.receive(true, ['study.example']);
+  run.receive(true, ['google.com', 'study.example']);
   assert.equal((await run.message('blocking-status')).error, '');
-  assert.equal(run.state.rules[1].condition.urlFilter, '||study.example^');
+  const { condition } = run.state.rules[1];
+  assert.equal(condition.regexFilter, '^https?://');
+  assert.deepEqual(Array.from(condition.excludedRequestDomains), ['google.com', 'study.example']);
   assert.equal(run.state.updates, 2);
 });
 
 test('disconnect retains active rules until manual release and reconnect rechecks the session', async () => {
   const run = worker([legacy, other]);
-  run.receive(true, ['study.example']);
+  run.receive(true, ['google.com', 'study.example']);
   assert.equal((await run.message('release-blocking')).canRelease, false);
-  assert.equal(run.state.updates, 0);
+  assert.equal(run.state.updates, 1);
   run.disconnect();
   assert.equal((await run.message('blocking-status')).canRelease, true);
   run.state.failures = 1;
@@ -94,7 +98,7 @@ test('disconnect retains active rules until manual release and reconnect recheck
   assert.equal((await run.message('release-blocking')).count, 0);
   assert.deepEqual(run.state.rules, [other]);
   run.request();
-  run.receive(true, ['study.example']);
+  run.receive(true, ['google.com', 'study.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
 });
 
@@ -103,4 +107,18 @@ test('a worker awaiting its first host reply can offer recovery for previously i
   assert.equal((await run.message('blocking-status')).canRelease, true);
   assert.equal((await run.message('release-blocking')).count, 0);
   assert.deepEqual(run.state.rules, [other]);
+});
+
+test('a topic switch replaces the exceptions without duplicating the block rule', async () => {
+  const run = worker([legacy, other]);
+  run.receive(true, ['google.com', 'first.example']);
+  assert.equal((await run.message('blocking-status')).count, 1);
+  run.request();
+  run.receive(true, ['second.example', 'google.com']);
+  assert.equal((await run.message('blocking-status')).count, 1);
+  assert.deepEqual(Array.from(run.state.rules[1].condition.excludedRequestDomains), ['google.com', 'second.example']);
+  run.request();
+  run.receive(true, ['google.com', 'second.example']);
+  await run.message('blocking-status');
+  assert.equal(run.state.updates, 2);
 });

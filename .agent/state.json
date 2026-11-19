@@ -2,7 +2,7 @@
   "as_of": "2026-11-19",
   "phase": "local_context_closed",
   "completed_milestone": "Восстановление блокировки сайтов и локальная подготовка контекста для ИИ",
-  "next_milestone": null,
+  "next_milestone": "Правила хранения и ручной очистки локальных данных",
   "status": "pending_owner_approval",
   "approval_record": "docs/decisions.md",
   "current_task": "tasks/current.md",
@@ -11,6 +11,9 @@
   "architecture": "docs/architecture.md",
   "progress": ".agent/progress.md",
   "git_checkpoint": "14b40a3cac17f3218bfdeef73b05bf4f38604247",
-  "remaining": [],
+  "last_verified_change": "Чат тьютора, адаптивная вёрстка и всплывающее окно Wayland, D14",
+  "remaining": [
+    "Согласовать срок хранения и границы очистки по карте локальных данных"
+  ],
   "repository_url": "https://github.com/21usual7/whiteroomfocus"
 }

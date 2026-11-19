@@ -4,9 +4,12 @@
 
 pub mod challenge;
 pub mod ai_context;
+pub mod brief;
+pub mod overlay;
 pub mod focus;
 pub mod idle;
 pub mod sandbox;
+pub mod tutor;
 
 use fsrs::{DEFAULT_PARAMETERS, FSRS, MemoryState};
 use rand::seq::SliceRandom;
@@ -153,8 +156,12 @@ impl Db {
              CREATE TABLE IF NOT EXISTS capture(study_id INTEGER PRIMARY KEY REFERENCES study(id),
                  windows INT NOT NULL, browser INT NOT NULL);
              CREATE TABLE IF NOT EXISTS block(domain TEXT PRIMARY KEY);
+             CREATE TABLE IF NOT EXISTS topic_site(topic_key TEXT NOT NULL, topic TEXT NOT NULL,
+                 domain TEXT NOT NULL, PRIMARY KEY(topic_key, domain));
              CREATE TABLE IF NOT EXISTS challenge_attempt(id INTEGER PRIMARY KEY, challenge_id INT NOT NULL
-               REFERENCES challenge(id), ts INT NOT NULL, answer TEXT NOT NULL, correct INT NOT NULL);",
+               REFERENCES challenge(id), ts INT NOT NULL, answer TEXT NOT NULL, correct INT NOT NULL);
+             CREATE TABLE IF NOT EXISTS tutor_message(id INTEGER PRIMARY KEY, ts INT NOT NULL,
+               session_id INT, role TEXT NOT NULL, text TEXT NOT NULL);",
         )
         .map_err(e)?;
         if c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
@@ -405,7 +412,7 @@ impl Db {
 
     pub fn export(&self) -> Res<serde_json::Value> {
         let mut all = serde_json::Map::new();
-        for t in ["objective", "item", "card", "session", "attempt", "focus", "page", "challenge", "challenge_attempt", "study", "study_focus", "capture", "block"] {
+        for t in ["objective", "item", "card", "session", "attempt", "focus", "page", "challenge", "challenge_attempt", "study", "study_focus", "capture", "block", "topic_site"] {
             let mut st = self.c.prepare(&format!("SELECT * FROM {t}")).map_err(e)?;
             let cols: Vec<String> = st.column_names().map(|s| s.to_string()).collect();
             let rows = st
@@ -914,8 +921,28 @@ pub fn write_native(out: &mut impl Write, v: &serde_json::Value) -> Res<()> {
 
 // ───────────── Учебная сессия и блокировка сайтов ─────────────
 
-fn domain_ok(d: &str) -> bool {
-    !d.is_empty() && d.len() <= 253 && d.contains('.') && d.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c))
+const GOOGLE_DOMAIN: &str = "google.com";
+
+fn site_domain(input: &str) -> Res<String> {
+    let input_lower = input.trim().to_ascii_lowercase();
+    let domain = input_lower.strip_prefix("www.").unwrap_or(&input_lower);
+    let domain = domain.strip_suffix('.').unwrap_or(domain);
+    if domain.len() <= 253
+        && domain.contains('.')
+        && domain.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+    {
+        Ok(domain.to_owned())
+    } else {
+        Err(format!("«{input}» — не домен (пример: docs.example.org)"))
+    }
 }
 
 impl Db {
@@ -1063,32 +1090,79 @@ impl Db {
         self.c.query_row("SELECT max(started) FROM study", [], |r| r.get(0)).map_err(e)
     }
 
-    pub fn block_add(&self, domain: &str) -> Res<()> {
-        let d = domain.trim().to_lowercase();
-        let d = d.strip_prefix("www.").unwrap_or(&d);
-        if !domain_ok(d) {
-            return Err(format!("«{domain}» — не домен (пример: youtube.com)"));
+    pub fn site_allow(&self, topic: &str, domain: &str) -> Res<()> {
+        let topic = topic.trim();
+        if topic.is_empty() {
+            return Err("Укажи тему сессии.".into());
         }
-        self.c.execute("INSERT OR IGNORE INTO block(domain) VALUES (?)", [d]).map_err(e)?;
+        let domain = site_domain(domain)?;
+        if domain != GOOGLE_DOMAIN {
+            self.c
+                .execute(
+                    "INSERT OR IGNORE INTO topic_site VALUES (?,?,?)",
+                    params![topic.to_lowercase(), topic, domain],
+                )
+                .map_err(e)?;
+        }
         Ok(())
     }
 
-    pub fn block_rm(&self, domain: &str) -> Res<bool> {
-        Ok(self.c.execute("DELETE FROM block WHERE domain=?", [domain.trim().to_lowercase()]).map_err(e)? > 0)
+    pub fn site_remove(&self, topic: &str, domain: &str) -> Res<()> {
+        let domain = site_domain(domain)?;
+        if domain == GOOGLE_DOMAIN {
+            return Err("Google разрешён для всех тем.".into());
+        }
+        self.c
+            .execute(
+                "DELETE FROM topic_site WHERE topic_key=? AND domain=?",
+                params![topic.trim().to_lowercase(), domain],
+            )
+            .map_err(e)?;
+        Ok(())
     }
 
-    pub fn blocked(&self) -> Res<Vec<String>> {
-        let mut st = self.c.prepare("SELECT domain FROM block ORDER BY domain").map_err(e)?;
-        let v = st.query_map([], |r| r.get(0)).map_err(e)?.collect::<Result<_, _>>().map_err(e)?;
-        Ok(v)
+    pub fn site_topics(&self) -> Res<Vec<String>> {
+        let mut stmt = self
+            .c
+            .prepare("SELECT min(topic) FROM topic_site GROUP BY topic_key ORDER BY min(topic)")
+            .map_err(e)?;
+        stmt.query_map([], |row| row.get(0))
+            .map_err(e)?
+            .collect::<Result<_, _>>()
+            .map_err(e)
     }
 
-    /// Ответ расширению: идёт ли сессия и что блокировать. Вне сессии не блокируется ничего.
+    pub fn allowed_sites(&self, topic: &str) -> Res<Vec<String>> {
+        let mut stmt = self
+            .c
+            .prepare("SELECT domain FROM topic_site WHERE topic_key=? ORDER BY domain")
+            .map_err(e)?;
+        let mut domains = vec![GOOGLE_DOMAIN.to_owned()];
+        for domain in stmt
+            .query_map([topic.trim().to_lowercase()], |row| row.get(0))
+            .map_err(e)?
+        {
+            domains.push(domain.map_err(e)?);
+        }
+        Ok(domains)
+    }
+
+    /// Список разрешённых сайтов и согласие на запись относятся к одной активной сессии.
     pub fn browser_state(&self) -> Res<serde_json::Value> {
-        let capture = self.capture_state()?;
-        let active = capture.is_some();
-        let block = if active { self.blocked()? } else { vec![] };
-        Ok(serde_json::json!({"session": active, "block": block, "capture": capture.filter(|x| x.2).map(|x| x.0)}))
+        let tx = self.c.unchecked_transaction().map_err(e)?;
+        let session = self.study_active()?;
+        let allowed = match &session {
+            Some((_, _, topic)) => self.allowed_sites(topic)?,
+            None => Vec::new(),
+        };
+        let capture = self
+            .capture_state()?
+            .filter(|entry| entry.2)
+            .map(|entry| entry.0);
+        tx.commit().map_err(e)?;
+        Ok(
+            serde_json::json!({"session": session.is_some(), "allowed": allowed, "capture": capture}),
+        )
     }
 }
 
