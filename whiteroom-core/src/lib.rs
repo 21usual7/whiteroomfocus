@@ -3,6 +3,7 @@
 //! половина — в `usual` (учишь как обычно). Сравнивается результат test7 по невиданным вопросам.
 
 pub mod challenge;
+pub mod ai_context;
 pub mod focus;
 pub mod idle;
 pub mod sandbox;
@@ -854,6 +855,14 @@ impl Db {
     }
 
     fn pages_range(&self, since: i64, until: i64, id: Option<i64>) -> Res<String> {
+        let mut output = String::new();
+        for page in self.page_excerpts(since, until, id)? {
+            page.append_page_log(&mut output);
+        }
+        Ok(output)
+    }
+
+    fn page_excerpts(&self, since: i64, until: i64, id: Option<i64>) -> Res<Vec<ai_context::SourceExcerpt>> {
         let mut st = self
             .c
             .prepare(
@@ -866,15 +875,17 @@ impl Db {
             .map_err(e)?
             .collect::<Result<_, _>>()
             .map_err(e)?;
-        let mut out = String::new();
+        let mut output = Vec::new();
+        let mut total_chars = 0;
         for (domain, title, excerpt) in rows {
-            let block = format!("── {domain} — {title}\n{excerpt}\n\n");
-            if out.chars().count() + block.chars().count() > MAX_PAGES_CHARS {
+            let name = format!("{domain} — {title}");
+            total_chars += name.chars().count() + excerpt.chars().count() + 6; // Prefix and line breaks.
+            if total_chars > MAX_PAGES_CHARS {
                 break;
             }
-            out += &block;
+            output.push(ai_context::SourceExcerpt { name, text: excerpt });
         }
-        Ok(out)
+        Ok(output)
     }
 }
 
@@ -970,35 +981,50 @@ impl Db {
     }
 
     pub fn review_activity(&self, hours: Option<i64>, now: i64) -> Res<String> {
-        let (id, since, until) = if let Some(hours) = hours {
-            if hours <= 0 {
-                return Err("Укажи положительное число часов.".into());
-            }
-            (None, now.saturating_sub(hours.saturating_mul(3600)), now)
-        } else {
-            let (id, start, end) = self
-                .c
-                .query_row(
-                    "SELECT id,started,coalesce(ended,?) FROM study
-                ORDER BY id DESC LIMIT 1",
-                    [now],
-                    |r| Ok((r.get::<_, i64>(0)?, r.get(1)?, r.get(2)?)),
-                )
-                .optional()
-                .map_err(e)?
-                .ok_or("Нет учебной сессии.")?;
-            (Some(id), start, end)
-        };
-        let mut text = self.focus_range(since, until, id)?;
-        let pages = self.pages_range(since, until, id)?;
-        if !pages.is_empty() {
+        let data = self.review_sources(hours, now)?;
+        let mut text = data.windows;
+        if !data.pages.is_empty() {
             text += "\nТекст учебных страниц:\n";
-            text += &pages;
+            for page in data.pages {
+                page.append_page_log(&mut text);
+            }
         }
         if text.lines().count() <= 1 {
             return Err("Нет записанной активности для разбора.".into());
         }
         Ok(text)
+    }
+
+    pub fn review_sources(&self, hours: Option<i64>, now: i64) -> Res<ai_context::SessionSources> {
+        let (id, since, until, topic) = if let Some(hours) = hours {
+            if hours <= 0 {
+                return Err("Укажи положительное число часов.".into());
+            }
+            (
+                None,
+                now.saturating_sub(hours.saturating_mul(3600)),
+                now,
+                None,
+            )
+        } else {
+            let (id, start, end, topic) = self
+                .c
+                .query_row(
+                    "SELECT id,started,coalesce(ended,?),topic FROM study
+                ORDER BY id DESC LIMIT 1",
+                    [now],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()
+                .map_err(e)?
+                .ok_or("Нет учебной сессии.")?;
+            (Some(id), start, end, Some(topic))
+        };
+        Ok(ai_context::SessionSources {
+            topic,
+            windows: self.focus_range(since, until, id)?,
+            pages: self.page_excerpts(since, until, id)?,
+        })
     }
 
     /// Закончить сессию → (начало, тема).

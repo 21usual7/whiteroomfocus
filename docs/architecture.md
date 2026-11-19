@@ -24,6 +24,8 @@ Session creation stores explicit, per-session window and browser consent in SQLi
 
 Default cloud context is limited by both study ID and time. Historical rows without a study ID remain in exports and explicit hour-range queries. Each request, including retries, goes through one confirmation function that displays the outgoing JSON before accessing the provider key. Tests inject a recording transport. See the [execution plan](../tasks/current.md).
 
+CLI review and math practice extract caller-selected UTF-8 text attachments locally. Prepared contexts keep source labels, remove duplicate fragments and prioritize terms from the session topic. Both paths cap the full serialized request and set separate response limits. The preview shows the bounded JSON, estimated token count and number of omitted fragments.
+
 ## Browser blocking recovery
 
 The extension reconciles installed dynamic rules after confirmed host state and retries failed updates on later confirmed replies. During loss of host confirmation, the popup can explicitly release WHITE ROOM rules through the extension. It reports the installed rule count after the change. Reconnection reconciles with the current session again. Browser capture still uses its existing per-session and per-site permissions.

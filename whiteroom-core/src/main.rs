@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write, stdin, stdout};
 use std::os::unix::net::UnixStream;
 use std::time::{SystemTime, UNIX_EPOCH};
+use whiteroom_core::ai_context::{self, MATH_BYTES, MATH_OUTPUT, REVIEW_BYTES, REVIEW_OUTPUT};
 use whiteroom_core::challenge::Challenge;
 use whiteroom_core::sandbox::{DEFAULT, Limits};
 use whiteroom_core::{Db, Module, Res, ai_call, ai_parse, ai_request, read_native, run_review, run_session, run_test, write_native};
@@ -20,7 +21,7 @@ const USAGE: &str = "whiteroom — пилот WHITE ROOM
   start [--windows] [--browser] [тема]   начать с выбранными источниками
   stop                      закончить и показать сводку
   block [add|rm <домен>]    сайты, блокируемые во время сессии
-  review [часов]            ИИ задаёт 2–3 вопроса по последней сессии (нужен ANTHROPIC_API_KEY)
+  review [часов] [--attach файл]    вопросы по последней сессии и выбранным материалам
   browser-setup             связать whiteroom с расширением в Chromium
 
 Практика:
@@ -32,6 +33,7 @@ const USAGE: &str = "whiteroom — пилот WHITE ROOM
   pwn run <id>              запустить бинарь в песочнице (pwntools: process(['whiteroom','pwn','run','<id>']))
   pwn gdb <id>              gdb в песочнице
   practice <pwn|math> [ч]   агент составит задачу по теме последней сессии (нужен ANTHROPIC_API_KEY)
+  practice math [ч] [--attach файл]    добавить текстовый материал к задаче по математике
 
 База: $WHITEROOM_DB или ~/.local/share/whiteroom/whiteroom.db";
 
@@ -145,16 +147,84 @@ fn confirmed_call(body: &serde_json::Value) -> Res<Option<serde_json::Value>> {
     })
 }
 
+fn context_options<'a>(mut args: &[&'a str]) -> Res<(Option<i64>, Vec<&'a str>)> {
+    let mut hours = None;
+    let mut files = Vec::new();
+    while let Some((argument, rest)) = args.split_first() {
+        args = rest;
+        if *argument == "--attach" {
+            let (file, remaining) = args.split_first().ok_or("После --attach укажи файл.")?;
+            files.push(*file);
+            args = remaining;
+        } else if hours.is_none() {
+            hours = Some(argument.parse().map_err(|_| USAGE)?);
+        } else {
+            return Err(USAGE.into());
+        }
+    }
+    Ok((hours, files))
+}
+
+fn display_context(draft: ai_context::PreparedRequest) -> serde_json::Value {
+    let estimate = draft.bytes.div_ceil(3);
+    println!(
+        "Вход: {} байт JSON, примерно {estimate} токенов. Пропущено фрагментов: {}.",
+        draft.bytes, draft.omitted
+    );
+    draft.body
+}
+
 /// Агент составляет задачу по теме сессии; не прошедшая проверку в песочнице перегенерируется с текстом ошибки.
-fn practice(kind: &str, hours: Option<i64>, now: i64) -> Res<()> {
+fn practice(kind: &str, hours: Option<i64>, files: &[&str], now: i64) -> Res<()> {
     let db = Db::open(&db_path()?)?;
-    let activity = db.review_activity(hours, now)?;
-    let done: Vec<String> = db.challenges()?.into_iter().map(|r| r.ch.title).collect();
+    let sources = if kind == "math" {
+        Some(db.review_sources(hours, now)?)
+    } else {
+        None
+    };
+    let activity = if sources.is_none() {
+        db.review_activity(hours, now)?
+    } else {
+        String::new()
+    };
+    let attachments = ai_context::read_attachments(files)?;
+    let done: Vec<String> = db
+        .challenges()?
+        .into_iter()
+        .filter(|row| kind != "math" || row.ch.kind == "math")
+        .map(|row| row.ch.title)
+        .collect();
     let mut prev: Option<(String, String)> = None;
     for attempt in 1..=3 {
         println!("Составляю задачу (попытка {attempt}/3)…");
-        let req =
-            whiteroom_core::challenge::ai_request(&activity, kind, &done, prev.as_ref().map(|(a, b)| (a.as_str(), b.as_str())));
+        let req = if let Some(sources) = &sources {
+            let titles: Vec<_> = done
+                .iter()
+                .take(12)
+                .map(|title| ai_context::prefix(title, 128).to_owned())
+                .collect();
+            let previous = prev.as_ref().map(|(answer, error)| {
+                (
+                    ai_context::prefix(answer, 4096),
+                    ai_context::prefix(error, 1024),
+                )
+            });
+            display_context(ai_context::prepare(
+                sources,
+                &attachments,
+                MATH_BYTES,
+                MATH_OUTPUT,
+                |context| whiteroom_core::challenge::ai_request(context, "math", &titles, previous),
+            )?)
+        } else {
+            whiteroom_core::challenge::ai_request(
+                &activity,
+                kind,
+                &done,
+                prev.as_ref()
+                    .map(|(answer, error)| (answer.as_str(), error.as_str())),
+            )
+        };
         let Some(response) = confirmed_call(&req)? else {
             return Ok(());
         };
@@ -203,15 +273,30 @@ fn stop(now: i64) -> Res<()> {
     Ok(())
 }
 
-fn review(hours: Option<i64>, now: i64) -> Res<()> {
+fn review(hours: Option<i64>, files: &[&str], now: i64) -> Res<()> {
     let db = Db::open(&db_path()?)?;
-    let activity = db.review_activity(hours, now)?;
+    let sources = db.review_sources(hours, now)?;
+    let attachments = ai_context::read_attachments(files)?;
+    let request = ai_context::prepare(
+        &sources,
+        &attachments,
+        REVIEW_BYTES,
+        REVIEW_OUTPUT,
+        ai_request,
+    )?;
     println!("Составляю вопросы…");
-    let Some(response) = confirmed_call(&ai_request(&activity))? else {
+    let Some(response) = confirmed_call(&display_context(request))? else {
         return Ok(());
     };
     let (summary, items) = ai_parse(&response, now)?;
-    run_review(&db, &mut stdin().lock(), &mut stdout(), now, &summary, &items)
+    run_review(
+        &db,
+        &mut stdin().lock(),
+        &mut stdout(),
+        now,
+        &summary,
+        &items,
+    )
 }
 
 const HOST: &str = "com.whiteroom.host";
@@ -352,12 +437,18 @@ fn run() -> Res<()> {
             let ok = db()?.solve(id(n)?, &rest.join(" "), now)?;
             println!("{}", if ok { "✓ Решено." } else { "✗ Неверно. Подсказка: whiteroom hint <id>" });
         }
-        ["practice", kind] if ["pwn", "math"].contains(kind) => practice(kind, None, now)?,
-        ["practice", kind, h] if ["pwn", "math"].contains(kind) => practice(kind, Some(h.parse().map_err(|_| USAGE)?), now)?,
+        ["practice", "math", rest @ ..] => {
+            let (hours, files) = context_options(rest)?;
+            practice("math", hours, &files, now)?;
+        }
+        ["practice", "pwn"] => practice("pwn", None, &[], now)?,
+        ["practice", "pwn", h] => practice("pwn", Some(h.parse().map_err(|_| USAGE)?), &[], now)?,
         ["pwn", "run", n] => pwn(id(n)?, false)?,
         ["pwn", "gdb", n] => pwn(id(n)?, true)?,
-        ["review"] => review(None, now)?,
-        ["review", h] => review(Some(h.parse().map_err(|_| USAGE)?), now)?,
+        ["review", rest @ ..] => {
+            let (hours, files) = context_options(rest)?;
+            review(hours, &files, now)?;
+        }
         ["start", args @ ..] => {
             let topic = args.iter().copied().filter(|s| !matches!(*s,"--windows"|"--browser")).collect::<Vec<_>>().join(" ");
             start(if topic.is_empty() { "без темы" } else { &topic }, now, args.contains(&"--windows"), args.contains(&"--browser"))?;
@@ -390,10 +481,25 @@ mod consent_tests {
     fn each_outbound_body_requires_its_own_exact_preview() {
         let prior = ("предыдущий ответ", "результат проверки");
         let titles = vec!["предыдущая тема".to_owned()];
+        let sources = ai_context::SessionSources {
+            topic: Some("уравнения".into()),
+            windows: "Всего 4 мин\nРедактор уравнений".into(),
+            pages: vec![],
+        };
         let bodies = [
-            ai_request("первая сессия"),
-            whiteroom_core::challenge::ai_request("вторая сессия", "math", &titles, None),
-            whiteroom_core::challenge::ai_request("вторая сессия", "math", &titles, Some(prior)),
+            ai_context::prepare(&sources, &[], REVIEW_BYTES, REVIEW_OUTPUT, ai_request)
+                .unwrap()
+                .body,
+            ai_context::prepare(&sources, &[], MATH_BYTES, MATH_OUTPUT, |text| {
+                whiteroom_core::challenge::ai_request(text, "math", &titles, None)
+            })
+            .unwrap()
+            .body,
+            ai_context::prepare(&sources, &[], MATH_BYTES, MATH_OUTPUT, |text| {
+                whiteroom_core::challenge::ai_request(text, "math", &titles, Some(prior))
+            })
+            .unwrap()
+            .body,
         ];
         for body in bodies {
             assert_eq!(body["model"], "claude-haiku-5-5");
