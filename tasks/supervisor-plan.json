@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "milestone": "browser-blocking-recovery",
-  "phase": "browser_blocking_recovery",
-  "decision": "D7",
+  "milestone": "local-review-context",
+  "phase": "local_context_closed",
+  "decision": "D9",
   "limits": {
     "minutes": 20,
     "iterations": 3,
@@ -10,39 +10,5 @@
     "executions": 8,
     "tokens": 200000
   },
-  "tasks": [
-    {
-      "id": "blocking-recovery-popup",
-      "kind": "routine",
-      "title": "Подготовить разметку и стили для восстановления блокировки в окне расширения",
-      "criteria": [
-        "В отдельной секции блокировки есть пустой статус с id blocking-status и role status, а также скрытая по умолчанию нативная кнопка type button с id release-blocking и понятной русской подписью.",
-        "При показе кнопка помещается в текущей ширине окна расширения, а фокус с клавиатуры виден.",
-        "Существующие элементы domain, toggle, note и host и подключение popup.js сохраняются. Новая кнопка скрыта до подключения действия."
-      ],
-      "paths": ["extension/popup.html", "extension/popup.css"],
-      "acceptance": ["tests/supervisor-acceptance/blocking-recovery-popup.test.mjs"]
-    },
-    {
-      "id": "blocking-rules-recovery",
-      "kind": "owner",
-      "title": "Проверить и подключить восстановление правил блокировки",
-      "criteria": [
-        "Утверждено поведение при разрыве связи с локальным процессом.",
-        "Проверены перезапуск service worker, повтор после ошибки обновления и снятие правил WHITE ROOM после завершения сессии.",
-        "Кнопка снимает правила WHITE ROOM при недоступном локальном процессе и сообщает результат после проверки. Остальные правила и настройки сбора активности сохраняются."
-      ],
-      "paths": []
-    },
-    {
-      "id": "blocking-recovery-chromium",
-      "kind": "owner",
-      "title": "Принять восстановление блокировки в Chromium с временным профилем",
-      "criteria": [
-        "Действие восстановления проверено с клавиатуры в Chromium при отключённом локальном процессе.",
-        "Прошли автоматические проверки трёх сбоев и проверки согласия M1. Результаты и локальный Git-чекпоинт записаны в журнале."
-      ],
-      "paths": []
-    }
-  ]
+  "tasks": []
 }

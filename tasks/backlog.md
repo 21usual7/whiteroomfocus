@@ -2,7 +2,7 @@
 
 | Order | Work | Dependency and evidence of completion |
 | --- | --- | --- |
-| 1 | Browser blocking recovery | After authorization, simulate worker restart, failed rule update and native-host disconnect. Verify old rules are cleared on release and an accessible recovery action works with the host offline. |
+| 1 | Browser blocking recovery | Completed. Restart, failed update, disconnect and keyboard recovery were verified. See [completed work](completed.md). |
 | 2 | Define local retention and deletion scope | Before real-data pilots, inventory SQLite and sidecars, extension preferences, generated files and user-owned exports. Seek owner sign-off on retention durations and deletion semantics. |
 | 3 | Delayed assessment pilot | Reuse authored day-seven items first. Freeze answer keys, time windows and denominator rules. Record first presentation and partial blocks. Resume without early feedback, preserve historical forms and omit keys and private logs from pilot analysis. Test missed and late assessments. For generated material, validate equivalent forms before adding other horizons. |
 | 4 | Improve learning workflow after pilot evidence | Review question hints, GUI review initiation and difficulty adjustment against measured friction. Require separate approval for paid calls. |
@@ -73,3 +73,16 @@ M1 is recorded in [completed work](completed.md). The research corpus remains th
 Выбранное затруднение воспроизводится на исходной версии и устраняется в новой. Проверка повторяема. Отчёт отделяет наблюдаемый эффект в интерфейсе от выводов об обучении.
 
 Владелец выбирает улучшение после разбора пилота. Изменения продуктового поведения и платная проверка требуют отдельного одобрения.
+
+## Локальная подготовка контекста для ИИ
+
+Базовая версия выполнена. В браузере извлекаются заголовки и видимый текст отмеченных учебных страниц. CLI для `review` и `practice math` дополнительно отбирает фрагменты локально и ограничивает размер всего запроса. [Подготовка контекста](../whiteroom-core/src/ai_context.rs)
+
+1. Начать с компактного контекста из существующих источников. Локально объединять повторы, группировать историю окон и отбирать выдержки по теме сессии. Сохранять выбранные определения, формулы и фрагменты кода с указанием источника.
+2. Первая версия поддерживает `.txt` и `.md`, которые пользователь сам выбирает для запроса. В предпросмотре есть имя источника и выбранные фрагменты. Расширение набора форматов и постоянное хранение вложений относятся к следующему решению о локальных данных.
+3. Перед предпросмотром оценивать входные токены локально и контролировать размер всего JSON, включая служебный текст, схему и данные повторной попытки. Если предел достигнут, сокращать менее важные фрагменты. Для `review` и `practice` предусмотреть отдельные лимиты входа и ответа.
+4. Показывать источники, пропущенные фрагменты и ориентировочное число токенов рядом с точным JSON. Каждый запрос, включая повторную попытку, по-прежнему требует подтверждения.
+
+### Приёмка
+
+На фикстурах с длинными страницами, повторами, русским текстом, кодом и повторной попыткой проверяется размер итогового JSON. Повторы удаляются, отмеченные важные выдержки сохраняются в пределах бюджета. В предпросмотре указан тот же JSON, который получает тестовый транспорт. Отказ даёт ноль вызовов. В тестах используются временные файлы и локальный транспорт.
