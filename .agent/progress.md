@@ -51,3 +51,7 @@ The backlog now records ordered tasks, acceptance evidence and approval boundari
 The owner approved stage 1 in D7. A synthetic run of the current worker reproduced stale rules after restart, a skipped retry after update failure and retained rules after disconnect. The queue starts with the popup contract and trusted acceptance fixture. Protected rule and messaging changes and the temporary-profile Chromium check have separate owner gates.
 
 The 17 supervisor tests and browser consent fixture passed. The popup fixture rejected the current markup and passed with the required elements in a temporary copy.
+
+## 2026-11-19 — supervisor baseline repair
+
+The first run under D7 stopped before Codex because a clean Git archive lacks Tauri's generated permissions and schemas. The offline validator now mounts only those output directories in temporary storage and leaves sources read-only. The isolated checks passed on a fresh Git archive with both output directories absent. The regression suite passed all 18 supervisor tests.
