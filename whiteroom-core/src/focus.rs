@@ -132,4 +132,28 @@ impl Db {
         .collect::<Result<_, _>>()
         .map_err(e)
     }
+
+    /// Активность по дням текущего месяца (локальное время): (дата, минуты фокуса, сессии, ответы).
+    /// Незавершённая сессия считается до `now`.
+    pub fn month_activity(&self, now: i64) -> Res<Vec<(String, i64, i64, i64)>> {
+        let mut q = self
+            .c
+            .prepare(
+                "WITH RECURSIVE d(day) AS (
+                   SELECT date(?1, 'unixepoch', 'localtime', 'start of month')
+                   UNION ALL SELECT date(day, '+1 day') FROM d
+                   WHERE day < date(?1, 'unixepoch', 'localtime', 'start of month', '+1 month', '-1 day'))
+                 SELECT day,
+                   (SELECT coalesce(sum(max(min(coalesce(ended, ?1), ?1) - started, 0)), 0) / 60
+                      FROM study WHERE date(started, 'unixepoch', 'localtime') = day),
+                   (SELECT count(*) FROM study WHERE date(started, 'unixepoch', 'localtime') = day),
+                   (SELECT count(*) FROM attempt WHERE date(ts, 'unixepoch', 'localtime') = day)
+                 FROM d",
+            )
+            .map_err(e)?;
+        q.query_map([now], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .map_err(e)?
+            .collect::<Result<_, _>>()
+            .map_err(e)
+    }
 }

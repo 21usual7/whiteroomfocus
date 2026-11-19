@@ -150,6 +150,8 @@ enum Request {
     Prepare {
         question: Option<String>,
         concept_id: Option<String>,
+        #[serde(default)]
+        claude: bool,
     },
     Send {
         preview_id: String,
@@ -177,7 +179,20 @@ pub fn tutor_stdio(path: &str, session_id: Option<i64>) -> Res<()> {
                 }
                 Request::Prepare {
                     question,
+                    claude: true,
+                    ..
+                } => {
+                    let preview = tutor.prepare_claude(
+                        &db,
+                        session_id,
+                        question.as_deref().unwrap_or_default(),
+                    )?;
+                    serde_json::to_value(preview).map_err(crate::e)
+                }
+                Request::Prepare {
+                    question,
                     concept_id,
+                    claude: false,
                 } => {
                     let preview = tutor.prepare(
                         &db,

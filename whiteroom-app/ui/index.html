@@ -16,6 +16,7 @@
       <h1><span class="mark" aria-hidden="true"></span>WHITE ROOM</h1>
       <nav aria-label="Разделы">
         <button type="button" aria-controls="study" aria-pressed="true">Фокус</button>
+        <button type="button" aria-controls="dashboard" aria-pressed="false">Дашборд</button>
         <button type="button" aria-controls="reviews" aria-pressed="false">Повторения</button>
         <button type="button" aria-controls="practice" aria-pressed="false">Практика</button>
         <button type="button" aria-controls="sites" aria-pressed="false">Сайты</button>
@@ -69,6 +70,10 @@
             <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
             <label><input id="capture-browser" type="checkbox"> Вкладки и выдержки с учебных сайтов</label>
           </fieldset>
+          <fieldset><legend>Рабочие столы</legend>
+            <label><input id="apply-setup" type="checkbox" checked> Разложить окна по сетапу направления</label>
+            <button type="button" id="edit-setup">Изменить сетап</button>
+          </fieldset>
           <button type="button" id="edit-topic-sites">Разрешённые сайты</button>
           <button class="primary">Начать сессию</button>
         </form>
@@ -95,7 +100,12 @@
       <div id="study-summary" hidden>
         <h2>Активность за сессию</h2>
         <pre id="focus-log"></pre>
-        <p>Дальше: <code>whiteroom review</code> — вопросы по сессии, <code>whiteroom practice pwn|math</code> — задача по теме (нужен ключ API).</p>
+        <div class="session-review">
+          <button type="button" id="review-session">Разобрать сессию с Claude</button>
+          <div id="review-preview"></div>
+          <p class="notice" id="review-status" role="status"></p>
+        </div>
+        <p>Задача по теме: <code>whiteroom practice pwn|math</code>.</p>
       </div>
       <div class="logs">
         <section id="recent-focus" hidden>
@@ -106,6 +116,22 @@
           <pre id="today" aria-live="polite">Загрузка…</pre>
         </section>
       </div>
+    </section>
+    <section id="dashboard" aria-label="Дашборд" hidden>
+      <div class="dash">
+        <div class="dash-head">
+          <p class="eyebrow">Активность за месяц</p>
+          <h2 id="dash-month"></h2>
+        </div>
+        <dl class="dash-stats" id="dash-stats"></dl>
+        <div class="dash-calendar">
+          <ol class="dash-week" aria-hidden="true"><li>Пн</li><li>Вт</li><li>Ср</li><li>Чт</li><li>Пт</li><li>Сб</li><li>Вс</li></ol>
+          <ol class="dash-grid" id="dash-grid" aria-label="Дни месяца"></ol>
+        </div>
+        <p class="dash-detail" id="dash-detail" aria-live="polite"></p>
+        <div class="dash-legend" aria-hidden="true">Меньше<span data-level="0"></span><span data-level="1"></span><span data-level="2"></span><span data-level="3"></span><span data-level="4"></span>Больше</div>
+      </div>
+      <p class="notice" id="dash-message" role="status"></p>
     </section>
     <section id="reviews" aria-label="Повторения" hidden>
       <fieldset id="review-content"></fieldset>

@@ -36,9 +36,9 @@ PanelWindow {
     bridge.write(JSON.stringify(Object.assign({ method: method }, input)) + "\n");
   }
 
-  function prepare(question, conceptId) {
+  function prepare(question, conceptId, claude) {
     notice = "";
-    request("prepare", { question: question, conceptId: conceptId });
+    request("prepare", { question: question, conceptId: conceptId, claude: Boolean(claude) });
   }
 
   function confirm() {
@@ -191,6 +191,7 @@ PanelWindow {
           id: row
           required property var modelData
           readonly property bool fromUser: modelData.role === "user"
+          readonly property bool fromClaude: modelData.role === "claude"
           width: ListView.view.width - 8
           height: line.implicitHeight + 20
 
@@ -200,6 +201,8 @@ PanelWindow {
             x: row.fromUser ? parent.width - width : 0
             radius: 9
             color: row.fromUser ? "#28483f" : "#203236"
+            border.width: row.fromClaude ? 1 : 0
+            border.color: "#a6dccc"
 
             Text {
               id: line
@@ -331,6 +334,13 @@ PanelWindow {
           text: "Спросить"
           enabled: Boolean(composer.text.trim())
           onClicked: popup.prepare(composer.text.trim(), null)
+        }
+
+        Action {
+          text: "Claude"
+          enabled: Boolean(composer.text.trim())
+          Accessible.name: "Спросить Claude свободным текстом"
+          onClicked: popup.prepare(composer.text.trim(), null, true)
         }
       }
     }

@@ -9,7 +9,7 @@
   --control-line: #646b76;
   --text: #eceef1;
   --muted: #9aa1ab;
-  --faint: #5d646e;
+  --faint: #7c838d;
   --accent: #4c8dff;
   --accent-soft: rgba(76, 141, 255, .12);
   --cyan: #62d3e4;
@@ -53,7 +53,7 @@ body.in-room {
   --control-line: #7a818b;
   --text: var(--room-text);
   --muted: var(--room-muted);
-  --faint: #9aa0a8;
+  --faint: #6b727c;
   --accent: var(--room-accent);
   --accent-soft: rgba(29, 91, 216, .08);
   --door: var(--room-text);

@@ -8,6 +8,7 @@ use whiteroom_core::{Db, Res};
 
 static STUDY: Mutex<()> = Mutex::new(());
 static TUTOR: Tutor = Tutor::new();
+static REVIEW: whiteroom_core::ReviewDraft = whiteroom_core::ReviewDraft::new();
 
 fn open_db() -> Res<Db> {
     if let Ok(path) = std::env::var("WHITEROOM_DB") {
@@ -52,6 +53,11 @@ async fn focus_catalog() -> Res<String> {
 }
 
 #[tauri::command]
+async fn month_activity() -> Res<String> {
+    json(open_db()?.month_activity(now())?)
+}
+
+#[tauri::command]
 async fn focus_history() -> Res<String> {
     json(open_db()?.focus_history()?)
 }
@@ -66,7 +72,16 @@ async fn tutor_prepare(
     session_id: Option<i64>,
     question: Option<String>,
     concept_id: Option<String>,
+    claude: Option<bool>,
 ) -> Res<String> {
+    if claude == Some(true) {
+        let db = open_db()?;
+        return json(TUTOR.prepare_claude(
+            &db,
+            session_id,
+            question.as_deref().unwrap_or_default(),
+        )?);
+    }
     json(TUTOR.prepare(
         &open_db()?,
         session_id,
@@ -130,6 +145,26 @@ async fn study_start(
 }
 
 #[tauri::command]
+async fn setup_open(mode: String, direction: String) -> Res<String> {
+    let path = whiteroom_core::setup::ensure(&mode, &direction)?;
+    std::process::Command::new("omarchy-launch-editor")
+        .arg(&path)
+        .spawn()
+        .or_else(|_| std::process::Command::new("xdg-open").arg(&path).spawn())
+        .map_err(|err| format!("Не удалось открыть {}: {err}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+async fn setup_apply(mode: String, direction: String) -> Res<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        whiteroom_core::setup::apply(&mode, &direction, std::process::id())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 async fn revoke_capture(id: i64, source: String) -> Res<()> {
     tauri::async_runtime::spawn_blocking(move || {
         open_db()?.revoke_capture(id, &source)?;
@@ -157,6 +192,25 @@ async fn study_stop(id: i64) -> Res<String> {
 }
 
 #[tauri::command]
+async fn review_prepare() -> Res<String> {
+    json(REVIEW.prepare(&open_db()?, now())?)
+}
+
+#[tauri::command]
+async fn review_send(preview_id: String) -> Res<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        json(REVIEW.send(&open_db()?, &preview_id, now(), whiteroom_core::tutor::request_claude)?)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn review_cancel() -> Res<()> {
+    REVIEW.cancel()
+}
+
+#[tauri::command]
 async fn review_queue() -> Res<String> {
     let db = open_db()?;
     let queue: Vec<_> = db
@@ -164,6 +218,7 @@ async fn review_queue() -> Res<String> {
         .into_iter()
         .map(|item| (item, "review"))
         .chain(db.new_items(8)?.into_iter().map(|item| (item, "new")))
+        .chain(db.new_ai_items()?.into_iter().map(|item| (item, "new")))
         .map(|(item, role)| (item.id, role, item.prompt, item.code, item.hint))
         .collect();
     json(queue)
@@ -306,6 +361,12 @@ fn main() {
             tutor_prepare,
             tutor_send,
             tutor_cancel,
+            setup_open,
+            setup_apply,
+            review_prepare,
+            month_activity,
+            review_send,
+            review_cancel,
             briefing,
             study_active,
             study_start,

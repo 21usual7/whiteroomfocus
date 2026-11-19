@@ -519,10 +519,75 @@ $("start-study").addEventListener("submit", (event) => {
       form.elements.topic.value = "";
       studyMessage.textContent = [!tracking && "Сессия началась, но трекер не запустился.", timerError]
         .filter(Boolean).join(" ");
+      // Сетап раскладывает окна в фоне: таймер уже идёт, ошибки конфига показываем в статусе.
+      if ($("apply-setup").checked) {
+        invoke("setup_apply", { mode, direction })
+          .then(note => { if (note) studyMessage.textContent = note; })
+          .catch(error => { studyMessage.textContent = String(error); });
+      }
     } finally {
       body.classList.remove("entering");
       syncScene();
     }
+  });
+});
+
+// Разбор сессии: Claude составляет вопросы по журналу, они попадают в «Повторения».
+// Сначала показываем точный запрос — в нём заголовки окон и выдержки страниц.
+function reviewReset(message = "") {
+  $("review-preview").replaceChildren();
+  $("review-status").textContent = message;
+  $("review-session").hidden = false;
+}
+
+$("review-session").addEventListener("click", async () => {
+  const start = $("review-session");
+  start.disabled = true;
+  $("review-status").textContent = "Готовлю запрос…";
+  try {
+    const preview = await read("review_prepare");
+    const json = element("pre", preview.requestJson);
+    json.className = "tutor-json";
+    json.tabIndex = 0;
+    json.setAttribute("aria-label", "Точный запрос к Claude");
+    const send = button("Отправить в Claude", async () => {
+      send.disabled = cancel.disabled = true;
+      $("review-status").textContent = "Claude составляет вопросы…";
+      try {
+        const result = await read("review_send", { previewId: preview.previewId });
+        reviewReset(result.count
+          ? `${result.summary} Добавлено вопросов: ${result.count}, они ждут во вкладке «Повторения».`
+          : `${result.summary} Проверяемых вопросов не получилось.`);
+        start.hidden = true;
+      } catch (error) {
+        reviewReset(error instanceof Error ? error.message : String(error));
+      }
+    });
+    send.className = "primary";
+    const cancel = button("Отмена", () => {
+      invoke("review_cancel").catch(() => {});
+      reviewReset("Запрос отменён, ничего не отправлено.");
+    });
+    const actions = element("div");
+    actions.className = "tutor-actions";
+    actions.append(send, cancel);
+    const omitted = preview.omitted ? ` · пропущено фрагментов: ${preview.omitted}` : "";
+    $("review-preview").replaceChildren(element("p", `Запрос к Claude · около ${preview.estimatedTokens} токенов${omitted}`), json, actions);
+    $("review-status").textContent = "";
+    start.hidden = true;
+    json.focus();
+  } catch (error) {
+    $("review-status").textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    start.disabled = false;
+  }
+});
+
+$("edit-setup").addEventListener("click", () => {
+  const form = $("start-study");
+  run(studyControls, studyMessage, async () => {
+    const path = await invoke("setup_open", { mode: form.elements.mode.value, direction: form.elements.direction.value });
+    studyMessage.textContent = `Сетап открыт в редакторе: ${path}`;
   });
 });
 
@@ -533,6 +598,7 @@ $("stop-study").addEventListener("click", () => {
     showStudy(null);
     field.pulse();
     $("focus-log").textContent = log;
+    reviewReset();
     $("study-summary").hidden = false;
     await Promise.all([loadToday(), loadHistory(), loadBriefing()]);
   });
@@ -854,7 +920,24 @@ function makeTutor(ctx, compact, reload) {
   t.concept.setAttribute("aria-label", "Понятие из каталога");
   t.concept.append(new Option("Понятие из каталога", ""), ...ctx.concepts.map(item => new Option(item.title, item.id)));
   t.concept.value = ctx.suggestedConceptId ?? "";
-  actions.append(t.concept);
+  // Каталог отвечает локально; Claude — свободный ответ через API после подтверждения запроса.
+  t.engine = "catalog";
+  try { if (localStorage.getItem("tutor-engine") === "claude") t.engine = "claude"; } catch {}
+  const engines = element("div");
+  engines.className = "tutor-engine";
+  engines.setAttribute("role", "group");
+  engines.setAttribute("aria-label", "Кто отвечает");
+  t.engines = [["catalog", "Каталог"], ["claude", "Claude"]].map(([id, label]) => {
+    const choice = button(label, () => {
+      t.engine = id;
+      try { localStorage.setItem("tutor-engine", id); } catch {}
+      edit();
+    });
+    choice.dataset.engine = id;
+    return choice;
+  });
+  engines.append(...t.engines);
+  actions.append(engines, t.concept);
 
   t.input = element("textarea");
   t.input.rows = 2;
@@ -876,11 +959,11 @@ function makeTutor(ctx, compact, reload) {
     actions.append(...t.quick);
   }
 
-  const edit = () => {
+  function edit() {
     if (t.preview) tutorCancel(t);
     t.status.replaceChildren();
     updateTutorComposer(t);
-  };
+  }
   t.concept.addEventListener("change", edit);
   t.input.addEventListener("input", edit);
   t.input.addEventListener("keydown", (event) => {
@@ -893,7 +976,8 @@ function makeTutor(ctx, compact, reload) {
     event.preventDefault();
     if (t.preview) return;
     const question = t.input.value.trim() || null;
-    tutorPrepare(t, question, question ? null : t.concept.value);
+    if (t.engine === "claude") tutorPrepare(t, question, null, true);
+    else tutorPrepare(t, question, question ? null : t.concept.value);
   });
 
   t.controls.append(actions, composer);
@@ -902,7 +986,7 @@ function makeTutor(ctx, compact, reload) {
   footer.className = "chat-footer";
   footer.append(t.out, t.status, form);
   if (!active) {
-    const info = element("p", "Понятия из каталога доступны без сети. Запрос к Claude требует подтверждения.");
+    const info = element("p", "Каталог отвечает без сети. Claude отвечает свободно: перед отправкой покажу точный запрос с сегодняшней перепиской.");
     info.className = "chat-info";
     footer.append(info);
   }
@@ -913,8 +997,13 @@ function makeTutor(ctx, compact, reload) {
 
 function updateTutorComposer(t) {
   const hasQuestion = Boolean(t.input.value.trim());
-  t.submit.disabled = t.busy || Boolean(t.preview) || (!hasQuestion && !t.concept.value);
-  t.submit.textContent = hasQuestion || !t.concept.value ? "Спросить" : "Объяснить";
+  const claude = t.engine === "claude";
+  for (const choice of t.engines) choice.setAttribute("aria-pressed", String(choice.dataset.engine === t.engine));
+  t.concept.hidden = claude;
+  for (const action of t.quick ?? []) action.hidden = claude;
+  t.input.placeholder = claude ? "Спроси Claude о чём угодно по теории" : "Например, что такое хеш?";
+  t.submit.disabled = t.busy || Boolean(t.preview) || (!hasQuestion && (claude || !t.concept.value));
+  t.submit.textContent = claude ? "Спросить Claude" : hasQuestion || !t.concept.value ? "Спросить" : "Объяснить";
   for (const action of t.quick ?? []) action.disabled = t.busy || !t.concept.value;
 }
 
@@ -922,8 +1011,8 @@ function tutorSay(t, role, text) {
   t.empty.remove();
   const user = role === "user";
   const item = element("li");
-  item.className = user ? "msg msg-user" : "msg msg-tutor";
-  const author = element("span", user ? "Ты" : "Тьютор");
+  item.className = user ? "msg msg-user" : role === "claude" ? "msg msg-tutor msg-claude" : "msg msg-tutor";
+  const author = element("span", user ? "Ты" : role === "claude" ? "Claude" : "Тьютор");
   author.className = "msg-author";
   item.append(author, element("p", text));
   t.messages.append(item);
@@ -957,31 +1046,31 @@ function tutorBusy(t, busy) {
   updateTutorComposer(t);
 }
 
-function tutorError(t, error, question, conceptId) {
+function tutorError(t, error, question, conceptId, claude) {
   const message = error instanceof Error ? error.message : String(error);
   t.status.replaceChildren(message);
   if (message.includes("Открой тьютора заново")) {
     t.status.append(" ", button("Обновить", t.reload));
   } else if (message.includes("заново")) {
-    t.status.append(" ", button("Подготовить заново", () => tutorPrepare(t, question, conceptId)));
+    t.status.append(" ", button("Подготовить заново", () => tutorPrepare(t, question, conceptId, claude)));
   }
 }
 
-async function tutorPrepare(t, question, conceptId) {
+async function tutorPrepare(t, question, conceptId, claude = false) {
   if (t.busy || t.closed || (!question && !conceptId)) return;
   tutorCancel(t);
   tutorBusy(t, true);
   t.status.textContent = "Готовлю ответ…";
   let nextFocus = t.input;
   try {
-    const preview = await read("tutor_prepare", { sessionId: t.ctx.sessionId, question, conceptId: conceptId || null });
+    const preview = await read("tutor_prepare", { sessionId: t.ctx.sessionId, question, conceptId: conceptId || null, claude });
     if (t.closed || preview.sessionId !== t.ctx.sessionId) {
       invoke("tutor_cancel", { previewId: preview.previewId }).catch(() => {});
       return;
     }
     const concept = t.ctx.concepts.find(item => item.id === conceptId);
     const entry = tutorSay(t, "user", question || concept?.title || "Определение");
-    t.preview = { ...preview, question, conceptId, entry };
+    t.preview = { ...preview, question, conceptId, claude, entry };
     if (preview.local) {
       await tutorSend(t);
       return;
@@ -1015,7 +1104,7 @@ async function tutorPrepare(t, question, conceptId) {
     actions.scrollIntoView({ block: "nearest" });
     nextFocus = json;
   } catch (error) {
-    if (!t.closed) tutorError(t, error, question, conceptId);
+    if (!t.closed) tutorError(t, error, question, conceptId, claude);
   } finally {
     tutorBusy(t, false);
     if (!t.closed) nextFocus.focus({ preventScroll: true });
@@ -1034,14 +1123,14 @@ async function tutorSend(t) {
     if (result.sessionId !== t.ctx.sessionId) {
       throw new Error("Состояние сессии изменилось. Открой тьютора заново.");
     }
-    tutorSay(t, "tutor", result.answer);
+    tutorSay(t, draft.claude ? "claude" : "tutor", result.answer);
     t.status.replaceChildren();
     t.input.value = "";
   } catch (error) {
     if (!t.closed) {
       draft.entry.remove();
       if (!t.messages.childElementCount) t.messages.append(t.empty);
-      tutorError(t, error, draft.question, draft.conceptId);
+      tutorError(t, error, draft.question, draft.conceptId, draft.claude);
     }
   }
 }
@@ -1128,7 +1217,103 @@ window.addEventListener("focus", async () => {
   }
 });
 
+// ───── Дашборд: сетка дней текущего месяца, яркость клетки — минуты фокуса. ─────
+const dashMonths = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+const dashLevel = (minutes, answers) => minutes >= 90 ? 4 : minutes >= 45 ? 3 : minutes >= 15 ? 2 : minutes || answers ? 1 : 0;
+const dashHours = (minutes) => minutes < 60 ? `${minutes} мин`
+  : minutes % 60 ? `${Math.floor(minutes / 60)} ч ${minutes % 60} мин` : `${minutes / 60} ч`;
+const dashOf = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+
+function dashCount(node, value, format) {
+  if (reducedMotion() || motion === "off") {
+    node.textContent = format(value);
+    return;
+  }
+  const started = performance.now();
+  const step = (time) => {
+    const t = Math.min(1, (time - started) / 900);
+    node.textContent = format(Math.round(value * (1 - (1 - t) ** 3)));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+async function loadDashboard() {
+  await run($("dashboard"), $("dash-message"), async () => {
+    const days = await read("month_activity");
+    const date = (text) => {
+      const [y, m, d] = text.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    };
+    const first = date(days[0][0]);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    $("dash-month").textContent = `${dashMonths[first.getMonth()]} ${first.getFullYear()}`;
+
+    const grid = $("dash-grid");
+    const detail = $("dash-detail");
+    const describe = ([day, minutes, sessions, answers]) => {
+      const d = date(day);
+      const label = `${d.getDate()} ${dashOf[d.getMonth()]}`;
+      if (day > today) return `${label}: впереди`;
+      if (!minutes && !sessions && !answers) return `${label}: без активности`;
+      return `${label}: ${dashHours(minutes)} · ${sessions} ${plural(sessions, "сессия", "сессии", "сессий")} · ${answers} ${plural(answers, "ответ", "ответа", "ответов")}`;
+    };
+    const cells = [];
+    for (let i = 0; i < (first.getDay() + 6) % 7; i++) {
+      const gap = element("li");
+      gap.className = "dash-gap";
+      cells.push(gap);
+    }
+    days.forEach((entry, index) => {
+      const [day, minutes, , answers] = entry;
+      const cell = element("li");
+      cell.className = "dash-cell";
+      cell.dataset.level = dashLevel(minutes, answers);
+      cell.style.setProperty("--i", index);
+      cell.tabIndex = 0;
+      cell.setAttribute("aria-label", describe(entry));
+      cell.append(element("span", String(date(day).getDate())));
+      if (day === today) cell.classList.add("today");
+      if (day > today) cell.classList.add("future");
+      const show = () => { detail.textContent = describe(entry); };
+      cell.addEventListener("mouseenter", show);
+      cell.addEventListener("focus", show);
+      cells.push(cell);
+    });
+    grid.replaceChildren(...cells);
+    const current = days.find(entry => entry[0] === today);
+    detail.textContent = current ? describe(current) : "";
+
+    const past = days.filter(entry => entry[0] <= today);
+    const active = past.filter(([, minutes, , answers]) => minutes || answers);
+    let streak = 0;
+    for (let i = past.length - 1; i >= 0; i--) {
+      const [day, minutes, , answers] = past[i];
+      if (minutes || answers) streak++;
+      else if (day !== today) break;
+    }
+    const total = past.reduce((sum, entry) => sum + entry[1], 0);
+    const sessions = past.reduce((sum, entry) => sum + entry[2], 0);
+    const stats = [
+      ["Фокус", total, (n) => n < 60 ? `${n} мин` : `${(n / 60).toFixed(1).replace(".", ",")} ч`],
+      ["Сессии", sessions, String],
+      ["Активных дней", active.length, (n) => `${n} из ${past.length}`],
+      ["Серия", streak, (n) => `${n} ${plural(n, "день", "дня", "дней")}`],
+    ];
+    $("dash-stats").replaceChildren(...stats.map(([name, value, format], index) => {
+      const box = element("div");
+      box.style.setProperty("--i", index);
+      const number = element("dd");
+      box.append(element("dt", name), number);
+      dashCount(number, value, format);
+      return box;
+    }));
+  });
+}
+
 const load = {
+  dashboard: loadDashboard,
   study: loadStudy,
   reviews: loadReviews,
   practice: loadPractice,

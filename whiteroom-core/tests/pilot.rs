@@ -497,3 +497,48 @@ fn briefing_shows_last_active_day() {
     assert!(db.briefing(t0 + 3600, 0).unwrap()["last"].is_null());
     assert_eq!(db.briefing(t0 + 3600, -9 * 3600).unwrap()["last"]["start"], t0 - 28_800 + 9 * 3600 - DAY);
 }
+
+#[test]
+fn app_review_sends_shown_request_once_and_queues_questions() {
+    let db = Db::open(":memory:").unwrap();
+    let draft = ReviewDraft::new();
+    assert!(draft.prepare(&db, 10).is_err());
+    let id = db.focus_start_with_sources("ctf", "Форензика", "стек", 100, true, false).unwrap();
+    db.focus_event(id, "activewindow>>ghidra,main.c", 110).unwrap();
+    db.focus_tick(id, 400).unwrap();
+    db.stop_session(Some(id), 400).unwrap();
+
+    let shown = draft.prepare(&db, 500).unwrap();
+    assert!(shown.request_json.contains("ghidra"));
+    let sent = std::cell::Cell::new(false);
+    let result = draft
+        .send(&db, &shown.preview_id, 500, |body| {
+            assert_eq!(serde_json::to_string_pretty(body).unwrap(), shown.request_json);
+            sent.set(true);
+            Ok(api_response(serde_json::json!([{"prompt": "[rbp+?] адрес возврата", "kind": "number", "answers": ["8"], "hint": "h", "explain": "e"}])))
+        })
+        .unwrap();
+    assert!(sent.get());
+    assert_eq!(result.count, 1);
+    assert_eq!(db.new_ai_items().unwrap().len(), 1);
+    assert!(draft.send(&db, &shown.preview_id, 500, |_| panic!("повторная отправка")).is_err());
+
+    let cancelled = draft.prepare(&db, 500).unwrap();
+    draft.cancel().unwrap();
+    assert!(draft.send(&db, &cancelled.preview_id, 500, |_| panic!("отменённый запрос")).is_err());
+}
+
+#[test]
+fn month_activity_covers_every_day_and_counts_sessions() {
+    let db = Db::open(":memory:").unwrap();
+    // 2026-11-11 12:00 UTC: середина дня в любом часовом поясе от UTC-11 до UTC+11.
+    let noon = 1_794_398_400;
+    let id = db.focus_start_with_sources("ctf", "Форензика", "", noon, false, false).unwrap();
+    db.stop_session(Some(id), noon + 45 * 60).unwrap();
+    db.focus_start_with_sources("ctf", "Форензика", "", noon + 3600, false, false).unwrap();
+    let days = db.month_activity(noon + 3600 + 10 * 60).unwrap();
+    assert_eq!(days.len(), 30);
+    assert_eq!(days[0].0, "2026-11-01");
+    assert_eq!(days[10], ("2026-11-11".into(), 55, 2, 0));
+    assert_eq!(days.iter().map(|d| d.2).sum::<i64>(), 2);
+}

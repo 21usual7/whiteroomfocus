@@ -9,6 +9,7 @@ pub mod overlay;
 pub mod focus;
 pub mod idle;
 pub mod sandbox;
+pub mod setup;
 pub mod tutor;
 
 use fsrs::{DEFAULT_PARAMETERS, FSRS, MemoryState};
@@ -263,6 +264,22 @@ impl Db {
     }
 
     /// Новые вопросы практики группы wr, по очереди из разных целей (interleaving).
+    /// Вопросы ИИ по сессиям, на которые ещё не отвечали: в приложении они идут в «Повторения».
+    pub fn new_ai_items(&self) -> Res<Vec<Item>> {
+        self.items(
+            "SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
+             WHERE o.arm='ai' AND i.id NOT IN (SELECT item_id FROM card) ORDER BY i.ord",
+            [],
+        )
+    }
+
+    pub fn add_ai_items(&self, items: &[Item], now: i64) -> Res<()> {
+        self.c
+            .execute("INSERT OR IGNORE INTO objective(id, title, arm, assigned_at) VALUES ('ai', 'Вопросы ИИ по сессиям', 'ai', ?)", [now])
+            .map_err(e)?;
+        items.iter().try_for_each(|it| self.put_item(it, now))
+    }
+
     pub fn new_items(&self, n: usize) -> Res<Vec<Item>> {
         let all = self.items(
             "SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
@@ -765,6 +782,75 @@ pub fn ai_parse(resp: &serde_json::Value, now: i64) -> Res<(String, Vec<Item>)> 
 }
 
 /// Вопросы ИИ: ответ → разбор → в повторения FSRS. «!» — вопрос неверный, он удаляется.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPreview {
+    pub preview_id: String,
+    pub request_json: String,
+    pub estimated_tokens: usize,
+    pub omitted: usize,
+}
+
+#[derive(serde::Serialize)]
+pub struct ReviewResult {
+    pub summary: String,
+    pub count: usize,
+}
+
+/// Разбор последней сессии в приложении: отправляется ровно показанный JSON и только один раз.
+pub struct ReviewDraft(std::sync::Mutex<Option<(String, serde_json::Value)>>);
+
+impl Default for ReviewDraft {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReviewDraft {
+    pub const fn new() -> Self {
+        Self(std::sync::Mutex::new(None))
+    }
+
+    fn slot(&self) -> Res<std::sync::MutexGuard<'_, Option<(String, serde_json::Value)>>> {
+        self.0.lock().map_err(|_| "Разбор недоступен. Перезапусти приложение.".into())
+    }
+
+    pub fn prepare(&self, db: &Db, now: i64) -> Res<ReviewPreview> {
+        let sources = db.review_sources(None, now)?;
+        let draft = ai_context::prepare(&sources, &[], ai_context::REVIEW_BYTES, ai_context::REVIEW_OUTPUT, ai_request)?;
+        let id = format!("{:032x}", rand::random::<u128>());
+        let preview = ReviewPreview {
+            preview_id: id.clone(),
+            request_json: serde_json::to_string_pretty(&draft.body).map_err(e)?,
+            estimated_tokens: draft.bytes.div_ceil(3),
+            omitted: draft.omitted,
+        };
+        *self.slot()? = Some((id, draft.body));
+        Ok(preview)
+    }
+
+    pub fn cancel(&self) -> Res<()> {
+        *self.slot()? = None;
+        Ok(())
+    }
+
+    pub fn send(
+        &self,
+        db: &Db,
+        preview_id: &str,
+        now: i64,
+        transport: impl FnOnce(&serde_json::Value) -> Res<serde_json::Value>,
+    ) -> Res<ReviewResult> {
+        let (_, body) = self
+            .slot()?
+            .take_if(|(id, _)| id == preview_id)
+            .ok_or("Запрос уже отправлен или отменён. Подготовь заново.")?;
+        let (summary, items) = ai_parse(&transport(&body)?, now)?;
+        db.add_ai_items(&items, now)?;
+        Ok(ReviewResult { summary, count: items.len() })
+    }
+}
+
 pub fn run_review(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i64, summary: &str, items: &[Item]) -> Res<()> {
     writeln!(out, "\n{summary}").map_err(e)?;
     if items.is_empty() {
