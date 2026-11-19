@@ -39,6 +39,6 @@ Select the highest-priority unblocked item within the approved milestone. Record
 
 Handle routine reversible choices independently. Escalate product or privacy changes, irreversible actions, external changes and spending. Stop after three materially different attempts on a blocker and continue independent work. At an approval boundary, record the decision and options once. Resume from the recorded gate when the owner responds.
 
-For a bounded local agent run, use `scripts/supervise --status` to check readiness. After explicit owner approval, record the scope in the decision log and set the state status to `approved_for_implementation`. Run `scripts/supervise` from a clean checkout. It uses the downloaded supervisor (override its path with `SUPERVISOR_PY`) for one task with a 20-minute budget. Its changes remain available for review before a checkpoint. Restore the pending status when the approved scope ends.
+Use the repository supervisor for routine work in an owner-approved plan. First run `scripts/supervise --status`. Record explicit approval in the decision log and set the state status to `approved_for_implementation`. Commit the owner-maintained queue in `tasks/supervisor-plan.json` and run `scripts/supervise run` from a clean checkout. Checkpoints are local and separate from the owner branch. See the [supervisor guide](docs/supervisor.md) for budgets, reports and recovery.
 
 Place new Claude Code assignments beside the existing prompts in `docs/prompt-claude-*.md`. Define file ownership and acceptance checks in each assignment.

@@ -27,3 +27,11 @@ The owner supplied the repository URL https://github.com/21usual7/whiteroom. A r
 Reviewed Claude’s first M1 desktop report. Real 900 px session controls worked and the updated theme fit both offscreen widths. Fixed focus restoration on revocation and rebuilt the current UI. JS syntax and supervisor checks passed. Final real-window keyboard and layout verification and Git checkpoint are pending.
 
 SSH lookup of git@github.com:21usual7/whiteroom.git stopped before authentication: OpenSSH rejected a system include owned by nobody in this environment. Host lookup for github.com and ssh.github.com also returned no addresses. Host-side SSH history handoff is documented in docs/prompt-claude-git.md.
+
+Owner corrected the published repository to https://github.com/21usual7/whiteroomfocus. Local Git metadata is now readable at master, 2ef31a0. Remote synchronization was not verified.
+
+## Supervisor orchestration
+
+The owner requested a repository-local supervisor. The initial M1 queue preserves the existing desktop acceptance and owner checkpoint gates. Product implementation and research remain outside this change.
+
+All 16 supervisor tests passed using mocked Codex and temporary Git repositories. The real offline bubblewrap suite passed Cargo check, Clippy, one CLI unit test, 16 pilot tests, JavaScript syntax and the browser consent fixture. Clippy reported four existing style warnings. No live Codex calls were made. The supervisor changes are available in the existing checkout for owner review; the checkout still contains pre-existing uncommitted files. M1 desktop acceptance remains pending.

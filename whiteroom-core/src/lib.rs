@@ -642,7 +642,7 @@ pub fn run_test(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i64)
 
 // ───────────── ИИ: вопросы по записанной активности ─────────────
 
-pub(crate) const MODEL: &str = "claude-opus-5-5";
+pub(crate) const MODEL: &str = "claude-haiku-5-5";
 const MAX_AI_QUESTIONS: usize = 3;
 
 const AI_SYSTEM: &str = "Ты — тьютор в приложении для самообучения. Тебе дают журнал активности одной учебной сессии: \
@@ -674,7 +674,6 @@ pub fn ai_request(activity: &str) -> serde_json::Value {
     serde_json::json!({
         "model": MODEL,
         "max_tokens": 16000,
-        "fallbacks": "default",
         "output_config": {
             "effort": "medium",
             "format": {"type": "json_schema", "schema": {
@@ -697,7 +696,6 @@ pub fn ai_call(key: &str, body: &serde_json::Value) -> Res<serde_json::Value> {
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", key)
         .header("anthropic-version", "2026-10-21")
-        .header("anthropic-beta", "server-side-fallback-2026-07-01")
         .send_json(body)
         .map_err(|x| format!("сеть: {x}"))?;
     let status = r.status().as_u16();

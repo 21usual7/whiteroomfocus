@@ -143,7 +143,7 @@ fn api_response(questions: serde_json::Value) -> serde_json::Value {
 #[test]
 fn ai_request_shape() {
     let r = ai_request("Всего 45 мин\n  45 мин  ghidra\n");
-    assert_eq!(r["model"], "claude-opus-5-5");
+    assert_eq!(r["model"], "claude-haiku-5-5");
     assert_eq!(r["output_config"]["format"]["type"], "json_schema");
     assert!(r["messages"][0]["content"].as_str().unwrap().contains("<activity>\nВсего 45 мин"));
     assert!(r.get("thinking").is_none() && r.get("temperature").is_none());

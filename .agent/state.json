@@ -10,11 +10,11 @@
   "completed": "tasks/completed.md",
   "architecture": "docs/architecture.md",
   "progress": ".agent/progress.md",
-  "git_checkpoint": "blocked_missing_original_metadata",
+  "git_checkpoint": "local_history_available_remote_sync_unverified",
   "remaining": [
     "Final real-window 360/900 px keyboard, focus restoration and mode-arrow indicator checks on rebuilt desktop",
     "Local checkpoint in a writable checkout"
   ],
   "claude_task": "docs/prompt-claude-m1.md",
-  "repository_url": "https://github.com/21usual7/whiteroom"
+  "repository_url": "https://github.com/21usual7/whiteroomfocus"
 }

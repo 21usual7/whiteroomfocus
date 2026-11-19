@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+rust_files=()
+acceptance=()
+for path in "$@"; do
+  case "$path" in
+    *.rs) rust_files+=("$path") ;;
+    *.test.mjs) acceptance+=("$path") ;;
+    *) exit 2 ;;
+  esac
+done
+if (( ${#rust_files[@]} )); then
+  echo "Formatting changed Rust files"
+  rustfmt --edition 2024 --config skip_children=true --check "${rust_files[@]}"
+fi
+echo "Rust workspace type check"
+cargo check --workspace --locked --offline
+echo "Rust workspace lint"
+cargo clippy --workspace --locked --offline -- -D clippy::correctness
+echo "Rust unit and pilot tests"
+cargo test --locked --offline -p whiteroom-core --lib --bin whiteroom --test pilot
+echo "JavaScript syntax"
+node --check extension/background.js
+node --check extension/popup.js
+node --check whiteroom-app/ui/app.js
+echo "Browser consent fixtures"
+node --test tests/browser-consent.test.mjs
+if (( ${#acceptance[@]} )); then
+  echo "Task acceptance fixtures"
+  node --test "${acceptance[@]}"
+fi

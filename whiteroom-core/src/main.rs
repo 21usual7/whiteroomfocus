@@ -396,6 +396,8 @@ mod consent_tests {
             whiteroom_core::challenge::ai_request("вторая сессия", "math", &titles, Some(prior)),
         ];
         for body in bodies {
+            assert_eq!(body["model"], "claude-haiku-5-5");
+            assert!(body.get("fallbacks").is_none());
             let mut output = vec![];
             let mut sent = vec![];
             let response = confirm_request(&body, &mut "y\n".as_bytes(), &mut output, |request| {

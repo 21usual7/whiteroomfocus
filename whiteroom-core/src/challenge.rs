@@ -322,7 +322,6 @@ pub fn ai_request(activity: &str, kind: &str, done: &[String], prev: Option<(&st
     serde_json::json!({
         "model": crate::MODEL,
         "max_tokens": 16000,
-        "fallbacks": "default",
         "output_config": {"effort": "high", "format": {"type": "json_schema", "schema": schema(kind)}},
         "system": system(kind),
         "messages": messages
