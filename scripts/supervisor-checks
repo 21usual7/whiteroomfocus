@@ -25,6 +25,8 @@ node --check extension/popup.js
 node --check whiteroom-app/ui/app.js
 echo "Browser consent fixtures"
 node --test tests/browser-consent.test.mjs
+echo "Browser blocking recovery fixtures"
+node --test tests/browser-blocking.test.mjs tests/supervisor-acceptance/blocking-recovery-popup.test.mjs
 if (( ${#acceptance[@]} )); then
   echo "Task acceptance fixtures"
   node --test "${acceptance[@]}"

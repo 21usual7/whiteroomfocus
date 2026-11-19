@@ -17,7 +17,14 @@ function refresh() {
       if (next !== capture) { generation++; last = ""; }
       capture = next;
       chrome.storage.session.set({ hostOk: !!r.ok, hostError: r.error || "", session: !!r.session, capture });
-      applyBlock(r.block || []);
+      if (r.ok && r.request === pendingState && typeof r.session === 'boolean' && Array.isArray(r.block)) {
+        blockingHostConfirmed = true;
+        enqueueBlocking(async () => {
+          if (connection === port && r.request === pendingState) {
+            await applyBlock(r.session ? r.block : []);
+          }
+        }).catch(() => {});
+      }
       if (capture !== null && r.request === pendingState) reportActive(connection, capture, generation);
     });
     connection.onDisconnect.addListener(() => {
@@ -26,27 +33,73 @@ function refresh() {
       capture = null;
       last = "";
       port = null;
-      chrome.storage.session.set({ hostOk: false, hostError: chrome.runtime.lastError?.message || "отключено", capture: null });
+      blockingHostConfirmed = false;
+      chrome.storage.session.set({ hostOk: false, hostError: chrome.runtime.lastError?.message || "отключено", session: false, capture: null });
     });
   }
   port.postMessage({ type: "state", request: ++pendingState });
 }
 
-// Во время сессии whiteroom присылает список доменов; блокирует сам браузер (declarativeNetRequest).
-let blocked = '';
+const FIRST_BLOCK_RULE = 1_000_000;
+const LAST_LEGACY_RULE = 30_000;
+const FRAME_TYPES = ['main_frame', 'sub_frame'];
+let blockingWork = Promise.resolve();
+let blockingError = '';
+let blockingHostConfirmed = false;
+
+function enqueueBlocking(action) {
+  const work = blockingWork.then(action);
+  blockingWork = work.catch(() => {});
+  return work;
+}
+
+function managedFilter(rule) {
+  const { action, condition } = rule;
+  const frames = condition?.resourceTypes;
+  if (action?.type !== 'block' || (rule.priority ?? 1) !== 1 ||
+      Object.keys(condition ?? {}).some(key => !['urlFilter', 'resourceTypes'].includes(key)) ||
+      frames?.length !== FRAME_TYPES.length || !FRAME_TYPES.every(frame => frames.includes(frame)) ||
+      !/^\|\|[a-z0-9.-]+\^$/.test(condition.urlFilter)) return null;
+  return rule.id >= FIRST_BLOCK_RULE || (rule.id >= 1 && rule.id <= LAST_LEGACY_RULE)
+    ? condition.urlFilter : null;
+}
+
 async function applyBlock(domains) {
-  const key = domains.join(',');
-  if (key === blocked) return;
-  blocked = key;
-  const old = await chrome.declarativeNetRequest.getDynamicRules();
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: old.map(r => r.id),
-    addRules: domains.map((d, i) => ({
-      id: i + 1,
-      action: { type: 'block' },
-      condition: { urlFilter: `||${d}^`, resourceTypes: ['main_frame', 'sub_frame'] },
-    })),
-  });
+  const filters = [...new Set(domains)].sort().map(domain => `||${domain}^`);
+  try {
+    const installed = await chrome.declarativeNetRequest.getDynamicRules();
+    const managed = installed.filter(managedFilter);
+    const activeFilters = managed.map(managedFilter).sort();
+    if (activeFilters.length !== filters.length || activeFilters.some((filter, i) => filter !== filters[i])) {
+      const occupied = new Set(installed.filter(rule => !managedFilter(rule)).map(rule => rule.id));
+      let id = FIRST_BLOCK_RULE;
+      const addRules = filters.map(urlFilter => {
+        while (occupied.has(id)) id++;
+        return { id: id++, action: { type: 'block' }, condition: { urlFilter, resourceTypes: FRAME_TYPES } };
+      });
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: managed.map(rule => rule.id),
+        addRules,
+      });
+    }
+    blockingError = '';
+  } catch (error) {
+    blockingError = 'Не удалось обновить правила блокировки.';
+    throw error;
+  }
+}
+
+async function blockingStatus(release) {
+  if (release && !blockingHostConfirmed) {
+    try {
+      await applyBlock([]);
+    } catch {
+      // Read back actual rules so the popup can offer another attempt.
+    }
+  }
+  const rules = await chrome.declarativeNetRequest.getDynamicRules();
+  const count = rules.filter(managedFilter).length;
+  return { count, canRelease: !blockingHostConfirmed && count > 0, error: blockingError };
 }
 
 // Раз в 30 с спрашиваем, не началась ли или не закончилась ли сессия.
@@ -96,4 +149,14 @@ chrome.permissions.onRemoved.addListener(refresh);
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.study) { last = ""; refresh(); }
 });
-chrome.runtime.onMessage.addListener(m => { if (m.type === "refresh") { last = ""; refresh(); } });
+chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+  if (message.type === 'refresh') {
+    last = '';
+    refresh();
+  } else if (message.type === 'blocking-status' || message.type === 'release-blocking') {
+    enqueueBlocking(() => blockingStatus(message.type === 'release-blocking')).then(
+      reply, () => reply({ error: 'Не удалось прочитать правила блокировки.' }),
+    );
+    return true;
+  }
+});

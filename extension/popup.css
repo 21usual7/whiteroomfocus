@@ -4,3 +4,5 @@ h1 { font-size: 13px; letter-spacing: .2em; font-weight: 600; margin: 0 0 14px; 
 button { width: 100%; padding: 8px; border: 1px solid #111; background: #fff; font: inherit; cursor: pointer; }
 button:hover, button:focus-visible { background: #111; color: #fff; }
 .muted { color: #666; margin: 10px 0 0; }
+#release-blocking { margin-top: 8px; overflow-wrap: anywhere; }
+#release-blocking:focus-visible { outline: 2px solid #111; outline-offset: 2px; }

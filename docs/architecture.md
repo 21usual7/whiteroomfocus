@@ -24,6 +24,10 @@ Session creation stores explicit, per-session window and browser consent in SQLi
 
 Default cloud context is limited by both study ID and time. Historical rows without a study ID remain in exports and explicit hour-range queries. Each request, including retries, goes through one confirmation function that displays the outgoing JSON before accessing the provider key. Tests inject a recording transport. See the [execution plan](../tasks/current.md).
 
+## Browser blocking recovery
+
+The extension reconciles installed dynamic rules after confirmed host state and retries failed updates on later confirmed replies. During loss of host confirmation, the popup can explicitly release WHITE ROOM rules through the extension. It reports the installed rule count after the change. Reconnection reconciles with the current session again. Browser capture still uses its existing per-session and per-site permissions.
+
 ## Assessment integrity review
 
 The independent source review found that exiting the CLI test early displays feedback for answered items and can present an already displayed unanswered item again. Before using results to claim first-exposure retention, persist first presentation, mark partial blocks and defer feedback until closure. Updating a module can replace item content under the same ID. Freeze reconstructible forms and keep the full personal export, including answer keys, separate from pilot analysis. [Test flow and item storage](../whiteroom-core/src/lib.rs)

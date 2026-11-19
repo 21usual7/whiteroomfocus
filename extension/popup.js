@@ -1,10 +1,36 @@
 const $ = id => document.getElementById(id);
 
+const releaseButton = $('release-blocking');
+const blockingStatus = $('blocking-status');
+
+async function refreshBlocking(release = false) {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: release ? 'release-blocking' : 'blocking-status' });
+    releaseButton.hidden = !result.canRelease;
+    blockingStatus.textContent = result.error || (result.count === 0
+      ? release ? 'Блокировка WHITE ROOM снята.' : 'Блокировка WHITE ROOM выключена.'
+      : `Действующие правила блокировки WHITE ROOM: ${result.count}.`);
+  } catch {
+    blockingStatus.textContent = 'Не удалось проверить блокировку.';
+  }
+}
+
+releaseButton.addEventListener('click', async () => {
+  releaseButton.disabled = true;
+  await refreshBlocking(true);
+  releaseButton.disabled = false;
+  (releaseButton.hidden ? blockingStatus : releaseButton).focus();
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes.hostOk) refreshBlocking();
+});
+refreshBlocking();
+
 (async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const { hostOk, hostError, session, capture } = await chrome.storage.session.get(['hostOk', 'hostError', 'session', 'capture']);
+  const { hostOk, hostError, capture } = await chrome.storage.session.get(['hostOk', 'hostError', 'capture']);
   $('host').textContent = hostOk
-    ? `Связь с whiteroom: есть.${session ? ' Идёт сессия — отвлекающие сайты заблокированы.' : ''}`
+    ? 'Связь с whiteroom: есть.'
     : `Связи с whiteroom нет: ${hostError || 'запусти whiteroom browser-setup'}.`;
   if (!tab || !/^https?:/.test(tab.url || '')) {
     $('domain').textContent = 'Эта вкладка не записывается.';
