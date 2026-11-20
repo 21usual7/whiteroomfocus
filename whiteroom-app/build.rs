@@ -68,6 +68,7 @@ fn main() {
             "spread_reviews",
             "progress",
             "seen",
+            "activity_clear",
             "backup",
             "modules",
             "module_get",

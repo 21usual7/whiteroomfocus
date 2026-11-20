@@ -606,7 +606,8 @@ impl Db {
             _ => "new",
         };
         self.record_rated(Some(sid), &it, role, ans.trim(), ok, hinted, rating == "hard", ms, now)?;
-        let aid = self.c.last_insert_rowid();
+        // Не last_insert_rowid: record_rated после попытки ещё пишет card, и rowid был бы карточки.
+        let aid: i64 = self.c.query_row("SELECT max(id) FROM attempt", [], |r| r.get(0)).map_err(e)?;
         self.c
             .execute("INSERT INTO block_step(block_id, step, status, attempt_id, ts) VALUES (?,?,'answered',?,?)", params![id, step, aid, now])
             .map_err(e)?;
@@ -1026,11 +1027,32 @@ impl Db {
         let host = format!("{home}/.config/chromium/NativeMessagingHosts/com.whiteroom.host.json");
         let sync = format!("{home}/.config/systemd/user/whiteroom-progress-sync.timer");
         let counts = |t: &str| -> Res<i64> { self.c.query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get(0)).map_err(e) };
+        // Завершённые сессии с записями окон и страниц: их можно очистить (`activity_clear`).
+        let mut activity = self
+            .c
+            .prepare(
+                "SELECT * FROM (SELECT id, topic, started, ended, (SELECT count(*) FROM focus WHERE study_id=study.id) w,
+                   (SELECT count(*) FROM page WHERE study_id=study.id) p FROM study WHERE ended IS NOT NULL)
+                 WHERE w+p>0 ORDER BY id DESC LIMIT 50",
+            )
+            .map_err(e)?
+            .query_map([], |r| {
+                Ok(json!({"session": r.get::<_, i64>(0)?, "topic": r.get::<_, String>(1)?, "started": r.get::<_, i64>(2)?,
+                          "ended": r.get::<_, i64>(3)?, "windows": r.get::<_, i64>(4)?, "pages": r.get::<_, i64>(5)?}))
+            })
+            .map_err(e)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(e)?;
+        let (w, p) = (counts("focus WHERE study_id IS NULL")?, counts("page WHERE study_id IS NULL")?);
+        if w + p > 0 {
+            activity.push(json!({"session": null, "topic": "Записи без сессии (до версии со связью с сессией)", "windows": w, "pages": p}));
+        }
         Ok(json!({
             "capture": sources,
             "stored": {"db": db_path, "bytes": size(db_path), "journal": size(&format!("{db_path}-journal")), "wal": size(&format!("{db_path}-wal")),
                        "copies": copies, "rows": {"windows": counts("focus")?, "pages": counts("page")?, "attempts": counts("attempt")?,
                        "tutor_messages": counts("tutor_message")?, "drafts": counts("ai_draft")?}},
+            "activity": activity,
             "integrations": {
                 "native_host": std::path::Path::new(&host).exists(),
                 "d1_sync_timer": std::path::Path::new(&sync).exists(),
@@ -1049,6 +1071,39 @@ impl Db {
         }
         self.c.execute("VACUUM INTO ?", [dest]).map_err(e)?;
         Ok(())
+    }
+
+    /// «Очистить записи активности» (решение владельца 2026-11-20): заголовки окон, страницы и
+    /// выдержки одной завершённой сессии или записи без сессии (`None`). `apply=false` только
+    /// считает. Время, тема и режим сессии, учёба, список блокировки и копии `.bak` остаются.
+    /// Одна транзакция: прерывание ничего не удаляет, повтор безопасен.
+    pub fn activity_clear(&self, session: Option<i64>, apply: bool) -> Res<Value> {
+        if let Some(id) = session {
+            let ended: Option<Option<i64>> =
+                self.c.query_row("SELECT ended FROM study WHERE id=?", [id], |r| r.get(0)).optional().map_err(e)?;
+            match ended {
+                None => return Err(format!("Сессии {id} нет.")),
+                Some(None) => return Err("Сессия ещё идёт: сначала заверши её.".into()),
+                _ => {}
+            }
+        }
+        let n = |q: &str| -> Res<i64> { self.c.query_row(q, [session], |r| r.get(0)).map_err(e) };
+        let r = json!({"session": session,
+            "windows": n("SELECT count(*) FROM focus WHERE study_id IS ?1")?,
+            "pages": n("SELECT count(*) FROM page WHERE study_id IS ?1")?,
+            "excerpts": n("SELECT count(*) FROM page WHERE study_id IS ?1 AND excerpt IS NOT NULL")?,
+            "kept": "Время, тема и режим сессии, карточки, ответы, результаты и список блокировки остаются.",
+            "elsewhere": "Копии .bak, сохранённые выгрузки и облачная копия D1 не меняются: их удаляешь сам."});
+        if apply {
+            // secure_delete затирает удалённый текст в файле базы, а не только помечает страницы свободными.
+            self.c.execute_batch("PRAGMA secure_delete=ON").map_err(e)?;
+            let tx = self.c.unchecked_transaction().map_err(e)?;
+            tx.execute("DELETE FROM focus WHERE study_id IS ?1", [session]).map_err(e)?;
+            tx.execute("DELETE FROM page WHERE study_id IS ?1", [session]).map_err(e)?;
+            tx.commit().map_err(e)?;
+            self.c.execute_batch("PRAGMA secure_delete=OFF; PRAGMA wal_checkpoint(TRUNCATE);").map_err(e)?;
+        }
+        Ok(r)
     }
 }
 

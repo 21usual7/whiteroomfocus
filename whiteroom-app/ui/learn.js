@@ -663,12 +663,37 @@ async function renderSeen() {
   const [s, v] = await Promise.all([read("seen"), read("versions")]);
   const c = s.capture;
   const versions = element("p", `Окно ${v.app} · схема базы ${v.schema} · CLI ${v.cli ?? "не найден"}`);
-  const copy = button("Сделать копию", () => go(async () => {
+  const seenGo = (task) => go(task, $("seen-view"), $("seen-message"));
+  const copy = button("Сделать копию", () => seenGo(async () => {
     const path = await invoke("backup");
     await renderSeen();
     $("seen-message").textContent = "Копия сохранена: " + path;
-  }, $("seen-view"), $("seen-message")));
+  }));
   const r = s.stored.rows;
+  // Очистка: сначала apply:false (только счётчики), удаление — после «Удалить» в диалоге.
+  const clear = (a) => {
+    const open = button("Очистить записи активности", () => seenGo(async () => {
+      const p = await read("activity_clear", { session: a.session, apply: false });
+      const dialog = $("clear-dialog");
+      $("clear-dialog-body").replaceChildren(
+        element("p", `${a.topic}: окон ${p.windows}, страниц ${p.pages}, выдержек ${p.excerpts}.`),
+        element("p", p.kept), element("p", p.elsewhere));
+      dialog.returnValue = "";
+      dialog.onclose = () => {
+        if (dialog.returnValue !== "apply") return open.focus();
+        seenGo(async () => {
+          await read("activity_clear", { session: a.session, apply: true });
+          await renderSeen();
+          $("seen-message").textContent = `Удалено: окон ${p.windows}, страниц ${p.pages}, выдержек ${p.excerpts}.`;
+          return $("seen-view").querySelector('[aria-label^="Очистить"]');
+        });
+      };
+      dialog.showModal();
+      return dialog.querySelector('[value=""]');
+    }));
+    open.setAttribute("aria-label", `Очистить записи активности: ${a.topic}`);
+    return open;
+  };
   $("seen-view").replaceChildren(heading("Что WHITE ROOM видит"),
     ...(v.match ? [] : [Object.assign(element("p", v.message), { className: "notice" })]),
     element("h3", "Запись сейчас"),
@@ -680,6 +705,9 @@ async function renderSeen() {
     element("h3", `Копии (${s.stored.copies.length})`),
     s.stored.copies.length ? list(s.stored.copies, (x) => [info(x.path, size(x.bytes))]) : element("p", "Копий пока нет."),
     copy,
+    element("h3", "Записи активности"),
+    s.activity.length ? list(s.activity, (a) => [info(a.topic, [a.started && when(a.started, true), `окон ${a.windows} · страниц ${a.pages}`].filter(Boolean).join(" · ")), actions(clear(a))])
+      : element("p", "Записей окон и страниц нет."),
     element("h3", "Интеграции"),
     list([["Мост расширения Chromium", s.integrations.native_host], ["Таймер синхронизации с D1", s.integrations.d1_sync_timer],
       ["Ключ Claude в окружении", s.integrations.claude_key_in_env]], ([name, on]) => [info(name, yes(on))]),

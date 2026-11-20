@@ -71,6 +71,7 @@
     "allow-spread-reviews",
     "allow-progress",
     "allow-seen",
+    "allow-activity-clear",
     "allow-backup",
     "allow-modules",
     "allow-module-get",

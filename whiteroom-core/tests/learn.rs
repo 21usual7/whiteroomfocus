@@ -71,6 +71,12 @@ fn clean_db_goal_plan_block_resume_and_close() {
     let a1 = db.block_answer(b, step, &key(&db, &item), None, 500, T0 + 60).unwrap();
     let a2 = db2.block_answer(b, step, "чужой ответ", None, 500, T0 + 61).unwrap();
     assert_eq!(a1["ok"], a2["ok"]);
+    // Результат шага — его собственная попытка (у нового задания после неё пишется card).
+    let ex = db.export().unwrap();
+    let mine = ex["attempt"].as_array().unwrap().iter().find(|a| a["item_id"] == item.as_str()).unwrap()["id"].clone();
+    let linked = ex["block_step"].as_array().unwrap().iter().find(|s| s["step"] == step).unwrap()["attempt_id"].clone();
+    assert_eq!(linked, mine);
+    assert_eq!(a1["ok"], true, "верный ответ на своё задание");
     assert_eq!(db.export().unwrap()["attempt"].as_array().unwrap().iter().filter(|a| a["item_id"] == item.as_str()).count(), 1);
     // Подсказка запоминается в блоке: ответ после неё — не самостоятельный, в любом клиенте.
     let st = db2.block_state(b).unwrap();
@@ -376,4 +382,48 @@ fn expression_equivalence_respects_domain() {
     assert!(expr_equal("sqrt(x^2)", "x", "positive").unwrap());
     assert!(!expr_equal("sqrt(x^2)", "x", "real").unwrap());
     assert!(expr_equal("2*x/(x^2+1)", "(2*x)/(1+x**2)", "real").unwrap());
+}
+
+/// Очистка записей активности: активную сессию не трогает, считает до удаления, удаляет только
+/// окна и страницы своей сессии, повтор даёт нули, текст выдержки не остаётся в файле (WAL тоже).
+#[test]
+fn activity_clear_counts_first_and_removes_only_that_session() {
+    let (_d, p) = tmp();
+    let raw = rusqlite::Connection::open(&p).unwrap();
+    let db = Db::open(&p).unwrap();
+    raw.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+    let add = |s: i64, tag: &str| {
+        raw.execute("INSERT INTO focus(start,end,class,title,study_id) VALUES (1,2,'kitty',?1,?2)", rusqlite::params![tag, s]).unwrap();
+        raw.execute("INSERT INTO page(ts,domain,title,excerpt,study_id) VALUES (1,'a.test',?1,?1,?2)", rusqlite::params![tag, s]).unwrap();
+    };
+    let s1 = db.study_start_with_sources("одна", T0, true, true).unwrap();
+    add(s1, "СЕКРЕТНАЯ-ВЫДЕРЖКА");
+    assert!(db.activity_clear(Some(s1), true).is_err(), "идущая сессия не очищается");
+    db.stop_session(None, T0 + 60).unwrap();
+    let s2 = db.study_start_with_sources("другая", T0 + 100, true, true).unwrap();
+    add(s2, "вторая");
+    db.stop_session(None, T0 + 160).unwrap();
+    raw.execute_batch("DROP TRIGGER consent_focus_INSERT; DROP TRIGGER consent_page_INSERT;").unwrap();
+    raw.execute("INSERT INTO page(ts,domain,title) VALUES (1,'old.test','без сессии')", []).unwrap();
+
+    let seen = db.seen(&p).unwrap();
+    assert_eq!(seen["activity"].as_array().unwrap().len(), 3, "две сессии и записи без сессии");
+    let preview = db.activity_clear(Some(s1), false).unwrap();
+    assert_eq!((preview["windows"].as_i64(), preview["pages"].as_i64(), preview["excerpts"].as_i64()), (Some(1), Some(1), Some(1)));
+    assert_eq!(db.activity_clear(Some(s1), false).unwrap(), preview, "счёт ничего не удаляет");
+    db.activity_clear(Some(s1), true).unwrap();
+    let again = db.activity_clear(Some(s1), true).unwrap();
+    assert_eq!((again["windows"].as_i64(), again["pages"].as_i64()), (Some(0), Some(0)), "повтор безопасен");
+    assert_eq!(db.activity_clear(Some(s2), false).unwrap()["pages"], 1, "другая сессия цела");
+    assert_eq!(db.activity_clear(None, false).unwrap()["pages"], 1);
+    db.activity_clear(None, true).unwrap();
+    assert_eq!(db.activity_clear(None, false).unwrap()["pages"], 0);
+    let topic: String = raw.query_row("SELECT topic FROM study WHERE id=?", [s1], |r| r.get(0)).unwrap();
+    assert_eq!(topic, "одна", "сессия остаётся");
+    drop((db, raw));
+    for f in [p.clone(), format!("{p}-wal")] {
+        let bytes = std::fs::read(&f).unwrap_or_default();
+        assert!(!String::from_utf8_lossy(&bytes).contains("СЕКРЕТНАЯ-ВЫДЕРЖКА"), "{f}: текст остался в файле");
+    }
+    assert!(Db::open(&p).unwrap().activity_clear(Some(999), false).is_err());
 }

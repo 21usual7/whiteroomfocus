@@ -18,6 +18,7 @@ const USAGE: &str = "whiteroom — WHITE ROOM
   spread <дней>             распределить накопившиеся повторения по дням
   seen                      что WHITE ROOM записывает и хранит сейчас
   backup [файл]             копия базы; restore <файл> — восстановить (текущая сохранится рядом)
+  clear <сессия|без-сессии> [--yes]  очистить записи окон и страниц: без --yes только посчитать
   module check <файл>       что изменит повторный импорт модуля
   anki import <tsv> <id> <название>   карточки Anki → модуль TOML (stdout)
   anki export <файл.toml>   задания модуля → TSV для Anki
@@ -496,6 +497,15 @@ fn run() -> Res<()> {
             println!("{dest}");
         }
         ["backup", dest] => db()?.backup(dest)?,
+        ["clear", which, rest @ ..] if rest.is_empty() || rest == ["--yes"] => {
+            let session = if *which == "без-сессии" { None } else { Some(id(which)?) };
+            let r = db()?.activity_clear(session, !rest.is_empty())?;
+            println!(
+                "{} окон, {} страниц, из них {} с выдержкой.\n{}\n{}",
+                r["windows"], r["pages"], r["excerpts"], r["kept"].as_str().unwrap_or(""), r["elsewhere"].as_str().unwrap_or("")
+            );
+            println!("{}", if rest.is_empty() { "Удалить: добавь --yes." } else { "Удалено." });
+        }
         ["restore", src] => {
             let saved = learn::restore(src, &db_path()?, now)?;
             println!("Восстановлено из {src}.{}", if saved.is_empty() { String::new() } else { format!(" Прежняя база: {saved}") });

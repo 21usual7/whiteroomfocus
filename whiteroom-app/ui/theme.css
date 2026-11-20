@@ -822,13 +822,13 @@ textarea.code { font-family: var(--mono); font-size: .84rem; }
 #materials-view details { padding: .4rem .7rem; border: 1px solid var(--line); border-radius: var(--radius); }
 #materials-view details[open] { display: grid; gap: .6rem; padding-bottom: .8rem; }
 #materials-view details + details { margin-top: .4rem; }
-#learn-dialog {
+#learn-dialog, #clear-dialog {
   box-sizing: border-box; width: min(32rem, calc(100% - 2rem)); padding: 1.1rem; border: 1px solid var(--line-strong);
   border-radius: 6px; background: var(--surface); color: var(--text);
 }
-#learn-dialog::backdrop { background: rgba(5, 6, 8, .6); }
-#learn-dialog form { display: grid; gap: .7rem; }
-#learn-dialog h2 { margin: 0; }
+#learn-dialog::backdrop, #clear-dialog::backdrop { background: rgba(5, 6, 8, .6); }
+#learn-dialog form, #clear-dialog form { display: grid; gap: .7rem; }
+#learn-dialog h2, #clear-dialog h2 { margin: 0; }
 @media (max-width: 560px) {
   .learn-material { grid-template-columns: minmax(0, 1fr); }
 }
@@ -840,3 +840,7 @@ textarea.code { font-family: var(--mono); font-size: .84rem; }
   nav button { padding: .4rem .4rem; letter-spacing: .05em; }
 }
 :is(.learn-work, #learn-view, .learn-panel, #materials-view, #seen-view) > button { justify-self: start; }
+#learn-view > .learn-work + .tutor-actions { padding-top: .8rem; border-top: 1px solid var(--line); }
+#clear-dialog p { margin: 0; color: var(--muted); font-size: .88rem; }
+#clear-dialog p:first-child { color: var(--text); }
+.learn-work h2.prose { font-weight: 500; line-height: 1.45; }

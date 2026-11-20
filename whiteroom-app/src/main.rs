@@ -604,6 +604,12 @@ async fn seen() -> Res<String> {
     Ok(open_db()?.seen(&db_path()?)?.to_string())
 }
 
+/// Очистка записей окон и страниц сессии (`session = null` — записи без сессии); `apply = false` — только счёт.
+#[tauri::command]
+async fn activity_clear(session: Option<i64>, apply: bool) -> Res<String> {
+    Ok(open_db()?.activity_clear(session, apply)?.to_string())
+}
+
 /// Копия рядом с базой: `<db>.<время>.bak`. Путь возвращается для показа.
 #[tauri::command]
 async fn backup() -> Res<String> {
@@ -765,6 +771,7 @@ fn main() {
             spread_reviews,
             progress,
             seen,
+            activity_clear,
             backup,
             modules,
             module_get,
