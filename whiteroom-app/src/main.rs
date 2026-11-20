@@ -10,9 +10,9 @@ static STUDY: Mutex<()> = Mutex::new(());
 static TUTOR: Tutor = Tutor::new();
 static REVIEW: whiteroom_core::ReviewDraft = whiteroom_core::ReviewDraft::new();
 
-fn open_db() -> Res<Db> {
+fn db_path() -> Res<String> {
     if let Ok(path) = std::env::var("WHITEROOM_DB") {
-        return Db::open(&path);
+        return Ok(path);
     }
     let dir = std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
@@ -20,7 +20,11 @@ fn open_db() -> Res<Db> {
         .map_err(|_| "не задан HOME")?
         .join("whiteroom");
     std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
-    Db::open(&dir.join("whiteroom.db").to_string_lossy())
+    Ok(dir.join("whiteroom.db").to_string_lossy().into())
+}
+
+fn open_db() -> Res<Db> {
+    Db::open(&db_path()?)
 }
 
 fn now() -> i64 {
@@ -453,6 +457,244 @@ async fn app_unblock(name: String) -> Res<()> {
     open_db()?.app_unblock(&name)
 }
 
+
+// ── WHITE ROOM 1.0: «Сегодня», цели, учебный блок, прогресс, данные, материалы (whiteroom_core::learn) ──
+
+/// Пример для чистой базы: модуль по анализу журналов встроен в приложение и работает офлайн.
+const EXAMPLE: &str = include_str!("../../modules/log-analysis.toml");
+
+#[tauri::command]
+async fn today(offset: i64) -> Res<String> {
+    Ok(open_db()?.today(now(), offset)?.to_string())
+}
+
+#[tauri::command]
+async fn goals() -> Res<String> {
+    Ok(open_db()?.goals()?.to_string())
+}
+
+#[tauri::command]
+async fn goal_example() -> Res<String> {
+    let m = whiteroom_core::Module::parse(EXAMPLE)?;
+    Ok(open_db()?.goal_create(&m, now())?.to_string())
+}
+
+#[tauri::command]
+async fn goal_from_module(id: String) -> Res<String> {
+    let db = open_db()?;
+    let m = db.module_src(&id)?;
+    Ok(db.goal_create(&m, now())?.to_string())
+}
+
+#[tauri::command]
+async fn goal_update(id: i64, edit: whiteroom_core::learn::GoalEdit) -> Res<()> {
+    open_db()?.goal_update(id, &edit, now())
+}
+
+#[tauri::command]
+async fn goal_archive(id: i64) -> Res<()> {
+    open_db()?.goal_archive(id, now())
+}
+
+#[tauri::command]
+async fn prereq_set(skill: String, needs: Vec<String>) -> Res<()> {
+    open_db()?.prereq_set(&skill, &needs)
+}
+
+#[tauri::command]
+async fn plan_preview(goal: i64) -> Res<String> {
+    json(serde_plan(&open_db()?.plan_build(goal, now())?)?)
+}
+
+fn serde_plan(p: &[whiteroom_core::learn::Step]) -> Res<Value> {
+    Ok(Value::List(
+        p.iter()
+            .map(|s| {
+                Value::Map(
+                    [
+                        ("kind".into(), s.kind.clone().into()),
+                        ("item".into(), s.item.clone().map_or(Value::Null, Into::into)),
+                        ("min".into(), (s.min as f64).into()),
+                        ("why".into(), s.why.clone().into()),
+                    ]
+                    .into(),
+                )
+            })
+            .collect(),
+    ))
+}
+
+#[tauri::command]
+async fn block_start(goal: i64, predicted: Option<i64>) -> Res<String> {
+    Ok(open_db()?.block_start(goal, predicted, now())?.to_string())
+}
+
+#[tauri::command]
+async fn block_open() -> Res<Option<i64>> {
+    open_db()?.block_open()
+}
+
+#[tauri::command]
+async fn block_state(id: i64) -> Res<String> {
+    Ok(open_db()?.block_state(id)?.to_string())
+}
+
+#[tauri::command]
+async fn block_plan_set(id: i64, plan: Vec<whiteroom_core::learn::Step>) -> Res<()> {
+    open_db()?.block_plan_set(id, &plan, now())
+}
+
+#[tauri::command]
+async fn block_answer(id: i64, step: i64, answer: String, rating: Option<String>, ms: i64) -> Res<String> {
+    Ok(open_db()?.block_answer(id, step, &answer, rating.as_deref(), ms, now())?.to_string())
+}
+
+#[tauri::command]
+async fn block_hint(id: i64, step: i64) -> Res<String> {
+    open_db()?.block_hint(id, step)
+}
+
+#[tauri::command]
+async fn block_reveal(id: i64, step: i64) -> Res<String> {
+    Ok(open_db()?.block_reveal(id, step)?.to_string())
+}
+
+#[tauri::command]
+async fn block_retry(id: i64, step: i64, answer: String, ms: i64) -> Res<bool> {
+    open_db()?.block_retry(id, step, &answer, ms, now())
+}
+
+#[tauri::command]
+async fn block_skip(id: i64, step: i64) -> Res<()> {
+    open_db()?.block_skip(id, step, now())
+}
+
+#[tauri::command]
+async fn block_note(id: i64, note: String) -> Res<()> {
+    open_db()?.block_note(id, &note, now())
+}
+
+#[tauri::command]
+async fn block_thought(id: i64, text: String) -> Res<()> {
+    open_db()?.block_thought(id, &text, now())
+}
+
+#[tauri::command]
+async fn block_close(id: i64, energy: Option<i64>, reflection: Option<String>) -> Res<String> {
+    Ok(open_db()?.block_close(id, energy, reflection.as_deref(), now())?.to_string())
+}
+
+#[tauri::command]
+async fn block_summary(id: i64) -> Res<String> {
+    Ok(open_db()?.block_summary(id)?.to_string())
+}
+
+#[tauri::command]
+async fn spread_reviews(days: i64) -> Res<i64> {
+    open_db()?.spread_reviews(days, now())
+}
+
+#[tauri::command]
+async fn progress() -> Res<String> {
+    Ok(open_db()?.progress(now())?.to_string())
+}
+
+#[tauri::command]
+async fn seen() -> Res<String> {
+    Ok(open_db()?.seen(&db_path()?)?.to_string())
+}
+
+/// Копия рядом с базой: `<db>.<время>.bak`. Путь возвращается для показа.
+#[tauri::command]
+async fn backup() -> Res<String> {
+    let dest = format!("{}.{}.bak", db_path()?, now());
+    open_db()?.backup(&dest)?;
+    Ok(dest)
+}
+
+#[tauri::command]
+async fn modules() -> Res<String> {
+    Ok(open_db()?.modules()?.to_string())
+}
+
+#[tauri::command]
+async fn module_get(id: String) -> Res<whiteroom_core::Module> {
+    open_db()?.module_src(&id)
+}
+
+#[tauri::command]
+async fn module_preview(module: whiteroom_core::Module) -> Res<String> {
+    let mut m = module;
+    whiteroom_core::Module::check(&mut m)?;
+    Ok(open_db()?.module_preview(&m)?.to_string())
+}
+
+#[tauri::command]
+async fn module_save(module: whiteroom_core::Module) -> Res<()> {
+    let mut m = module;
+    whiteroom_core::Module::check(&mut m)?;
+    open_db()?.module_put(&m, now())
+}
+
+#[tauri::command]
+async fn module_undo(id: String) -> Res<()> {
+    open_db()?.module_undo(&id, now())
+}
+
+/// Разбор файла модуля (TOML) для редактора; в базу ничего не пишется.
+#[tauri::command]
+async fn module_parse(text: String) -> Res<whiteroom_core::Module> {
+    whiteroom_core::Module::parse(&text)
+}
+
+#[tauri::command]
+async fn anki_import(tsv: String, id: String, title: String) -> Res<whiteroom_core::Module> {
+    whiteroom_core::learn::anki_import(&tsv, &id, &title)
+}
+
+#[tauri::command]
+async fn anki_export(id: String) -> Res<String> {
+    Ok(whiteroom_core::learn::anki_export(&open_db()?.module_src(&id)?))
+}
+
+/// Версии окна, ядра, схемы и соседнего CLI. Разные версии окна и CLI — понятная ошибка в интерфейсе.
+#[tauri::command]
+async fn versions() -> Res<String> {
+    let cli = std::env::current_exe()
+        .map_err(|err| err.to_string())?
+        .with_file_name("whiteroom");
+    let cli_v = std::process::Command::new(&cli)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    let app = env!("CARGO_PKG_VERSION");
+    let ok = cli_v.as_deref() == Some(app);
+    json(Value::Map(
+        [
+            ("app".into(), app.to_string().into()),
+            ("schema".into(), (whiteroom_core::SCHEMA as f64).into()),
+            ("cli".into(), cli_v.clone().map_or(Value::Null, Into::into)),
+            ("match".into(), ok.into()),
+            (
+                "message".into(),
+                if ok {
+                    String::new()
+                } else {
+                    format!(
+                        "CLI рядом с окном ({}) — версия {}, окно — {app}. Учёба в окне работает; запуск записи и таймера может не совпасть. Переустанови обе программы из одного архива.",
+                        cli.display(),
+                        cli_v.as_deref().unwrap_or("не найдена")
+                    )
+                }
+                .into(),
+            ),
+        ]
+        .into(),
+    ))
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -498,7 +740,41 @@ fn main() {
             site_unblock,
             blocked_apps,
             app_block,
-            app_unblock
+            app_unblock,
+            today,
+            goals,
+            goal_example,
+            goal_from_module,
+            goal_update,
+            goal_archive,
+            prereq_set,
+            plan_preview,
+            block_start,
+            block_open,
+            block_state,
+            block_plan_set,
+            block_answer,
+            block_hint,
+            block_reveal,
+            block_retry,
+            block_skip,
+            block_note,
+            block_thought,
+            block_close,
+            block_summary,
+            spread_reviews,
+            progress,
+            seen,
+            backup,
+            modules,
+            module_get,
+            module_preview,
+            module_save,
+            module_undo,
+            module_parse,
+            anki_import,
+            anki_export,
+            versions
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить WHITE ROOM");

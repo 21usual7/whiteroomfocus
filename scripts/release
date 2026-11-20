@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Локальный релиз WHITE ROOM: сборка, тесты, архив dist/whiteroom-<версия>-x86_64-linux.tar.gz.
+# Ничего не устанавливает и не публикует.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+v=$(sed -n 's/^version = "\(.*\)"/\1/p' whiteroom-core/Cargo.toml | head -1)
+name="whiteroom-$v-x86_64-linux"
+mise exec -- cargo build --release --workspace
+[ "${SKIP_TESTS:-}" = 1 ] || mise exec -- cargo test -p whiteroom-core
+rm -rf "dist/$name" && mkdir -p "dist/$name/bin"
+cp target/release/whiteroom target/release/whiteroom-app "dist/$name/bin/"
+cp -r extension modules "dist/$name/"
+cp scripts/install.sh "dist/$name/install.sh"
+cp README.md "dist/$name/README.md"
+tar -C dist -czf "dist/$name.tar.gz" "$name"
+(cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+echo "dist/$name.tar.gz"

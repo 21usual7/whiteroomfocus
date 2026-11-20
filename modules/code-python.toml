@@ -1,0 +1,276 @@
+# Модуль: чтение, трассировка и отладка Python. Задания code запускаются в песочнице WHITE ROOM
+# (bubblewrap + systemd: без сети, лимиты памяти, процессов и времени). Если песочница недоступна,
+# задания code засчитываются как неверные — остаются чтение и трассировка (number, text).
+id = "code-python"
+title = "Python: трассировка, отладка, маленькие функции"
+domain = "code"
+
+[[objective]]
+id = "code-trace"
+title = "Трассировка циклов и списков"
+
+[[objective]]
+id = "code-debug"
+title = "Отладка логической ошибки"
+needs = ["code-trace"]
+
+[[item]]
+id = "code-trace-d1"
+objective = "code-trace"
+role = "diag"
+kind = "number"
+prompt = "Диагностика. Что напечатает код?"
+code = """
+s = 0
+for i in range(1, 5):
+    s += i
+print(s)
+"""
+answer = ["10"]
+explain = "range(1, 5) — это 1, 2, 3, 4; сумма 10."
+
+[[item]]
+id = "code-trace-p1"
+objective = "code-trace"
+role = "practice"
+stage = "worked"
+kind = "number"
+prompt = """Разобранный пример. Трассируем по таблице:
+i=0 → x=1; i=1 → x=3; i=2 → x=7 (каждый раз x = 2·x + 1).
+Проверь себя: что напечатает код?"""
+code = """
+x = 0
+for i in range(3):
+    x = 2 * x + 1
+print(x)
+"""
+answer = ["7"]
+hint = "Последняя строка таблицы."
+explain = "Таблица переменных по шагам цикла — основной приём трассировки."
+
+[[item]]
+id = "code-trace-p2"
+objective = "code-trace"
+role = "practice"
+stage = "faded"
+kind = "number"
+prompt = """Пример с пропуском. Таблица: i=0 → x=1, i=1 → x=4, i=2 → ?
+(каждый раз x = 3·x + 1). Заполни последнюю строку — что напечатает код?"""
+code = """
+x = 0
+for i in range(3):
+    x = 3 * x + 1
+print(x)
+"""
+answer = ["13"]
+hint = "3·4 + 1."
+explain = "13."
+
+[[item]]
+id = "code-trace-p3"
+objective = "code-trace"
+role = "practice"
+stage = "solo"
+kind = "text"
+prompt = "Самостоятельно: что напечатает код? Ответ — как выведет Python."
+code = """
+a = [3, 1, 2]
+b = a
+b.append(0)
+print(a)
+"""
+answer = ["[3, 1, 2, 0]", "[3,1,2,0]"]
+explain = "b = a не копирует список: обе переменные ссылаются на один объект."
+
+[[item]]
+id = "code-trace-p4"
+objective = "code-trace"
+role = "practice"
+stage = "explain"
+kind = "explain"
+prompt = "Объясни: почему в прошлом задании изменился и a, хотя append вызывали у b?"
+answer = ["Присваивание b = a копирует ссылку, а не список; append меняет единственный общий объект."]
+rubric = "1) различие ссылки и копии; 2) один объект в памяти; 3) как получить копию: a.copy() или list(a)."
+explain = "Списки изменяемы; для копии используй a.copy()."
+
+[[item]]
+id = "code-trace-p5"
+objective = "code-trace"
+role = "practice"
+stage = "transfer"
+kind = "text"
+prompt = "Перенос: что напечатает код?"
+code = """
+d = {"k": [1]}
+e = dict(d)
+e["k"].append(2)
+print(d["k"])
+"""
+answer = ["[1, 2]", "[1,2]"]
+explain = "dict(d) — поверхностная копия: список внутри общий."
+
+[[item]]
+id = "code-trace-t1"
+objective = "code-trace"
+role = "test7"
+kind = "number"
+prompt = "Что напечатает код?"
+code = """
+n = 0
+for c in "banana":
+    if c == "a":
+        n += 2
+print(n)
+"""
+answer = ["6"]
+explain = "Три буквы a, по 2 за каждую."
+
+[[item]]
+id = "code-trace-t2"
+objective = "code-trace"
+role = "test7"
+kind = "text"
+prompt = "Что напечатает код?"
+code = """
+x = [1, 2]
+y = x + [3]
+y.append(4)
+print(x)
+"""
+answer = ["[1, 2]", "[1,2]"]
+explain = "x + [3] создаёт новый список, x не меняется."
+
+[[item]]
+id = "code-debug-d1"
+objective = "code-debug"
+role = "diag"
+kind = "number"
+prompt = "Диагностика. Функция должна вернуть максимум списка, но для [-5, -2] возвращает неверно. Номер строки с ошибкой?"
+code = """
+1 def mx(a):
+2     best = 0
+3     for v in a:
+4         if v > best:
+5             best = v
+6     return best
+"""
+answer = ["2"]
+explain = "Начальное значение 0 больше любого отрицательного; нужно best = a[0]."
+
+[[item]]
+id = "code-debug-p1"
+objective = "code-debug"
+role = "practice"
+stage = "worked"
+kind = "number"
+prompt = """Разобранный пример. Функция считает сумму первых n чисел, но для n=3 даёт 3 вместо 6.
+Шаг 1. Трассировка: range(n) — 0, 1, 2; сумма 3.
+Шаг 2. Ошибка в границе range: нужен range(1, n + 1).
+Проверь себя: номер строки с ошибкой?"""
+code = """
+1 def total(n):
+2     s = 0
+3     for i in range(n):
+4         s += i
+5     return s
+"""
+answer = ["3"]
+hint = "Шаг 2."
+explain = "Ошибка на единицу в границе цикла — самая частая логическая ошибка."
+
+[[item]]
+id = "code-debug-p2"
+objective = "code-debug"
+role = "practice"
+stage = "faded"
+kind = "code"
+prompt = """Пример с пропуском. Ошибка уже найдена: функция должна вернуть число чётных, но считает нечётные.
+Твой шаг — исправь функцию count_even(a) и пришли её целиком."""
+code = """
+def count_even(a):
+    return sum(1 for v in a if v % 2 == 1)
+"""
+answer = ["def count_even(a):\n    return sum(1 for v in a if v % 2 == 0)"]
+tests = """
+assert count_even([1, 2, 4, 7]) == 2
+assert count_even([]) == 0
+assert count_even([-2, 3]) == 1
+"""
+hint = "Остаток от деления на 2 у чётного числа — 0."
+explain = "Условие v % 2 == 0."
+
+[[item]]
+id = "code-debug-p3"
+objective = "code-debug"
+role = "practice"
+stage = "solo"
+kind = "code"
+prompt = "Самостоятельно: напиши last_index(a, x) — индекс последнего вхождения x в список a или -1."
+answer = ["def last_index(a, x):\n    for i in range(len(a) - 1, -1, -1):\n        if a[i] == x:\n            return i\n    return -1"]
+tests = """
+assert last_index([1, 2, 1], 1) == 2
+assert last_index([], 5) == -1
+assert last_index([5], 5) == 0
+assert last_index([1, 2], 3) == -1
+"""
+explain = "Идём с конца; пустой список и отсутствие x — граничные случаи."
+
+[[item]]
+id = "code-debug-p4"
+objective = "code-debug"
+role = "practice"
+stage = "explain"
+kind = "explain"
+prompt = "Объясни, как ты ищешь логическую ошибку, если программа не падает, а даёт неверный ответ."
+answer = ["Беру маленький вход с известным ответом, трассирую переменные по шагам и нахожу первое место, где значение расходится с ожидаемым."]
+rubric = "1) маленький пример с известным ответом; 2) трассировка или печать промежуточных значений; 3) первое расхождение — место ошибки."
+explain = "Расхождение ожидания и факта локализует ошибку."
+
+[[item]]
+id = "code-debug-p5"
+objective = "code-debug"
+role = "practice"
+stage = "transfer"
+kind = "number"
+prompt = "Перенос: функция должна вернуть True, если в строке есть цифра, но для 'ab1' возвращает False. Номер строки с ошибкой?"
+code = """
+1 def has_digit(s):
+2     for c in s:
+3         if c.isdigit():
+4             return True
+5         return False
+6     return False
+"""
+answer = ["5"]
+explain = "return False внутри цикла завершает функцию на первом символе."
+
+[[item]]
+id = "code-debug-t1"
+objective = "code-debug"
+role = "test7"
+kind = "number"
+prompt = "Функция должна вернуть среднее, но для [1, 2, 3] возвращает 3.0 вместо 2.0. Номер строки с ошибкой?"
+code = """
+1 def mean(a):
+2     s = 0
+3     for v in a:
+4         s += v
+5     return s / (len(a) - 1)
+"""
+answer = ["5"]
+explain = "Делить нужно на len(a)."
+
+[[item]]
+id = "code-debug-t2"
+objective = "code-debug"
+role = "test7"
+kind = "code"
+prompt = "Напиши clamp(x, lo, hi) — x, ограниченный отрезком [lo, hi]."
+answer = ["def clamp(x, lo, hi):\n    return max(lo, min(x, hi))"]
+tests = """
+assert clamp(5, 0, 3) == 3
+assert clamp(-1, 0, 3) == 0
+assert clamp(2, 0, 3) == 2
+assert clamp(3, 3, 3) == 3
+"""
+explain = "max(lo, min(x, hi))."

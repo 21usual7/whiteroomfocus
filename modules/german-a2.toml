@@ -1,0 +1,187 @@
+# Модуль: немецкий A2. Ответы сравниваются без учёта регистра и пробелов; допустимые варианты
+# (с умлаутом и ae/oe/ue/ss) перечислены в answer. Письменный ответ — explain: самооценка по рубрике,
+# качественная обратная связь — в пояснении. Текст для вопросов — в code, его источник — в source.
+id = "german-a2"
+title = "Немецкий A2: слова в контексте, артикли, предлоги места"
+domain = "german"
+
+[[objective]]
+id = "de-words"
+title = "Слова и артикли в контексте"
+
+[[objective]]
+id = "de-place"
+title = "Wo? / Wohin?: Dativ и Akkusativ после in, auf, an"
+needs = ["de-words"]
+
+[[item]]
+id = "de-words-d1"
+objective = "de-words"
+role = "diag"
+kind = "text"
+prompt = "Диагностика. Артикль: ___ Fenster ist offen."
+answer = ["das"]
+explain = "das Fenster — среднего рода."
+
+[[item]]
+id = "de-words-p1"
+objective = "de-words"
+role = "practice"
+stage = "worked"
+kind = "text"
+prompt = """Разобранный пример. «Der Schlüssel liegt auf dem Tisch.»
+Schlüssel — ключ, der (мужской род). Tisch — стол, der → после auf на вопрос wo? — dem Tisch.
+Проверь себя: как по-немецки «ключ» с артиклем?"""
+answer = ["der Schlüssel", "der Schluessel"]
+hint = "Первые два слова примера."
+explain = "Учи существительное сразу с артиклем."
+
+[[item]]
+id = "de-words-p2"
+objective = "de-words"
+role = "practice"
+stage = "faded"
+kind = "text"
+prompt = """С пропуском. «Die Tasche steht unter dem Stuhl.» Tasche — сумка (die), Stuhl — стул.
+Твой шаг: какой артикль у Stuhl в именительном падеже? (по dem: der или das)"""
+answer = ["der"]
+hint = "dem — Dativ и для der, и для das; Stuhl — мужского рода."
+explain = "der Stuhl."
+
+[[item]]
+id = "de-words-p3"
+objective = "de-words"
+role = "practice"
+stage = "solo"
+kind = "card"
+prompt = "Переведи на немецкий с артиклем: «окно»."
+answer = ["das Fenster"]
+rubric = "Слово и артикль верны оба — «вспомнил»; только слово — «с трудом»."
+explain = "das Fenster, Plural die Fenster."
+
+[[item]]
+id = "de-words-p4"
+objective = "de-words"
+role = "practice"
+stage = "solo"
+kind = "card"
+prompt = "Переведи на русский: «die Rechnung» (в ресторане)."
+answer = ["счёт"]
+rubric = "Значение в этом контексте — счёт, не «расчёт»."
+explain = "Die Rechnung, bitte! — Счёт, пожалуйста."
+
+[[item]]
+id = "de-words-p5"
+objective = "de-words"
+role = "practice"
+stage = "transfer"
+kind = "text"
+prompt = """Перенос: прочитай текст и ответь одним словом с артиклем — что лежит на полке?"""
+code = """
+Im Flur hängt ein Spiegel. Auf dem Regal liegt die Zeitung von gestern.
+"""
+source = "Текст модуля (учебный, составлен для WHITE ROOM)"
+answer = ["die Zeitung"]
+explain = "Auf dem Regal liegt die Zeitung — газета."
+
+[[item]]
+id = "de-words-t1"
+objective = "de-words"
+role = "test7"
+kind = "text"
+prompt = "Артикль: ___ Tür ist zu."
+answer = ["die"]
+explain = "die Tür."
+
+[[item]]
+id = "de-words-t2"
+objective = "de-words"
+role = "test7"
+kind = "text"
+prompt = "Переведи с артиклем: «стул»."
+answer = ["der Stuhl"]
+explain = "der Stuhl."
+
+[[item]]
+id = "de-place-d1"
+objective = "de-place"
+role = "diag"
+kind = "text"
+prompt = "Диагностика. Ich lege das Buch auf ___ Tisch. (den или dem)"
+answer = ["den"]
+explain = "legen — движение, вопрос wohin? → Akkusativ: den Tisch."
+
+[[item]]
+id = "de-place-p1"
+objective = "de-place"
+role = "practice"
+stage = "worked"
+kind = "text"
+prompt = """Разобранный пример.
+«Das Bild hängt an der Wand» — wo? (где висит) → Dativ: der Wand.
+«Ich hänge das Bild an die Wand» — wohin? (куда вешаю) → Akkusativ: die Wand.
+Проверь себя: какой падеж на вопрос wohin?"""
+answer = ["Akkusativ", "аккузатив", "винительный"]
+hint = "Вторая строка."
+explain = "Wo? — Dativ (место), wohin? — Akkusativ (направление)."
+
+[[item]]
+id = "de-place-p2"
+objective = "de-place"
+role = "practice"
+stage = "faded"
+kind = "text"
+prompt = """С пропуском. «Er stellt die Flasche in ___ Kühlschrank.»
+Шаг 1 сделан: stellen — движение, вопрос wohin?, значит Akkusativ.
+Шаг 2 — твой: der Kühlschrank в Akkusativ — den или dem?"""
+answer = ["den"]
+explain = "in den Kühlschrank."
+
+[[item]]
+id = "de-place-p3"
+objective = "de-place"
+role = "practice"
+stage = "solo"
+kind = "text"
+prompt = "Самостоятельно: Die Flasche steht in ___ Kühlschrank. (den или dem)"
+answer = ["dem"]
+explain = "stehen — место, wo? → Dativ: dem Kühlschrank."
+
+[[item]]
+id = "de-place-p4"
+objective = "de-place"
+role = "practice"
+stage = "explain"
+kind = "explain"
+prompt = "Напиши по-немецки 2 предложения: куда ты кладёшь телефон вечером и где он лежит утром."
+answer = ["Am Abend lege ich mein Handy auf den Tisch. Am Morgen liegt es auf dem Tisch."]
+rubric = "1) legen + Akkusativ (auf den …); 2) liegen + Dativ (auf dem …); 3) порядок слов: глагол на втором месте. Ошибка в одном из пунктов — «с трудом»."
+explain = "Пары глаголов: legen/liegen, stellen/stehen, hängen (вешать)/hängen (висеть)."
+
+[[item]]
+id = "de-place-p5"
+objective = "de-place"
+role = "practice"
+stage = "transfer"
+kind = "text"
+prompt = "Перенос (выбор метода): Wir gehen in ___ Park. (den или dem)"
+answer = ["den"]
+explain = "gehen in — направление: in den Park. Сравни: Wir sind im (in dem) Park."
+
+[[item]]
+id = "de-place-t1"
+objective = "de-place"
+role = "test7"
+kind = "text"
+prompt = "Der Teppich liegt unter ___ Sofa. (das или dem)"
+answer = ["dem"]
+explain = "liegen — wo? → Dativ: dem Sofa."
+
+[[item]]
+id = "de-place-t2"
+objective = "de-place"
+role = "test7"
+kind = "text"
+prompt = "Sie hängt die Jacke an ___ Haken. (den или dem; der Haken)"
+answer = ["den"]
+explain = "hängen (вешать) — wohin? → den Haken."

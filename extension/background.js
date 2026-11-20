@@ -13,6 +13,11 @@ function refresh() {
     port = connection;
     connection.onMessage.addListener(r => {
       if (connection !== port) return;
+      if (r.protocol !== undefined && r.protocol !== PROTOCOL) {
+        // Как при потере связи (D8): установленные правила остаются до ручного снятия в попапе.
+        chrome.storage.session.set({ hostOk: false, hostError: `Версии не совпадают: расширение ждёт протокол ${PROTOCOL}, WHITE ROOM ${r.version || '?'} даёт ${r.protocol}. Загрузи расширение из той же версии.`, session: false, capture: null });
+        return;
+      }
       const next = r.ok && Number.isSafeInteger(r.capture) ? r.capture : null;
       if (next !== capture) { generation++; last = ""; }
       capture = next;
@@ -44,6 +49,7 @@ function refresh() {
   port.postMessage({ type: "state", request: ++pendingState });
 }
 
+const PROTOCOL = 1;
 const FIRST_BLOCK_RULE = 1_000_000;
 const LAST_LEGACY_RULE = 30_000;
 const FRAME_TYPES = ['main_frame', 'sub_frame'];

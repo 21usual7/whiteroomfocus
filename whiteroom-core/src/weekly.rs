@@ -1,6 +1,9 @@
 //! Недельная проверка: блок вопросов по цели. Показ фиксируется до выдачи вопроса, формы с ключами
 //! замораживаются при создании блока, разбор выдаётся только после последнего ответа.
 use crate::{Db, Item, Res, DAY, TEST_DELAY, answer, e, grade, show};
+
+/// Срок цели: `horizon` дней после `done_at` (7 по D5, 30 — для отдельной группы целей).
+const DUE: &str = "o.done_at+o.horizon*86400";
 use rusqlite::{OptionalExtension, params};
 use std::io::{BufRead, Write};
 
@@ -37,18 +40,18 @@ impl Db {
         let due: Option<(String, String, i64)> = self
             .c
             .query_row(
-                "SELECT o.id, o.arm, o.done_at FROM objective o
-                 WHERE o.done_at IS NOT NULL AND o.done_at+?1<=?2
+                &format!("SELECT o.id, o.arm, {DUE} FROM objective o
+                 WHERE o.done_at IS NOT NULL AND {DUE}<=?1
                    AND NOT EXISTS (SELECT 1 FROM test_block b WHERE b.objective=o.id)
                    AND EXISTS (SELECT 1 FROM item i WHERE i.objective=o.id AND i.role='test7'
                                AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7'))
-                 ORDER BY o.id LIMIT 1",
-                [TEST_DELAY, now],
+                 ORDER BY o.id LIMIT 1"),
+                [now],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()
             .map_err(e)?;
-        let Some((objective, arm, done_at)) = due else {
+        let Some((objective, arm, due_at)) = due else {
             return Ok(None);
         };
         // OR IGNORE: второй клиент не создаёт блок повторно, а подхватывает уже созданный.
@@ -56,7 +59,7 @@ impl Db {
             .c
             .execute(
                 "INSERT OR IGNORE INTO test_block(objective, arm, due_at, opened_at) VALUES (?,?,?,?)",
-                params![objective, arm, done_at + TEST_DELAY, now],
+                params![objective, arm, due_at, now],
             )
             .map_err(e)?;
         if made > 0 {
@@ -210,11 +213,11 @@ impl Db {
             [],
         )?;
         v.extend(self.items(
-            "SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
-             WHERE i.role='test7' AND o.done_at IS NOT NULL AND o.done_at+?<=?
+            &format!("SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
+             WHERE i.role='test7' AND o.done_at IS NOT NULL AND {DUE}<=?
                AND NOT EXISTS (SELECT 1 FROM test_block b WHERE b.objective=o.id)
-               AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7') ORDER BY o.id, i.ord",
-            [TEST_DELAY, now],
+               AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7') ORDER BY o.id, i.ord"),
+            [now],
         )?);
         Ok(v)
     }
@@ -271,7 +274,7 @@ impl Db {
         for arm in arms {
             let n = |sql: &str| -> Res<i64> {
                 let mut st = self.c.prepare(sql).map_err(e)?;
-                let all: [&dyn rusqlite::ToSql; 4] = [&arm, &now, &TEST_WINDOW, &TEST_DELAY];
+                let all: [&dyn rusqlite::ToSql; 3] = [&arm, &now, &TEST_WINDOW];
                 st.query_row(&all[..st.parameter_count()], |r| r.get(0)).map_err(e)
             };
             let joined = "FROM test_exposure x JOIN test_block b ON b.id=x.block_id LEFT JOIN attempt a ON a.id=x.attempt_id
@@ -286,11 +289,11 @@ impl Db {
             let reshows = n(&format!("SELECT coalesce(sum(max(x.shows-1,0)),0) {joined}"))?;
             let unanswered = n(&format!("SELECT count(*) {joined} AND x.attempt_id IS NULL AND x.shown_at IS NOT NULL"))?;
             let missed_blocks = n(&format!("SELECT count(*) {joined} AND x.attempt_id IS NULL AND b.due_at+?3<?2"))?;
-            let missed_unopened = n(
+            let missed_unopened = n(&format!(
                 "SELECT count(*) FROM item i JOIN objective o ON o.id=i.objective
-                 WHERE o.arm=?1 AND i.role='test7' AND o.done_at IS NOT NULL AND o.done_at+?4+?3<?2
+                 WHERE o.arm=?1 AND i.role='test7' AND o.done_at IS NOT NULL AND {DUE}+?3<?2
                    AND NOT EXISTS (SELECT 1 FROM test_block b WHERE b.objective=o.id)
-                   AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7')",
+                   AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7')"),
             )?;
             let delay_h: Option<f64> =
                 self.c

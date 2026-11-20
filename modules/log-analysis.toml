@@ -6,6 +6,7 @@
 #   p4 — самообъяснение ключевого шага (выбор варианта, проверяется локально, не моделью);
 #   p5 — новая сопоставимая задача после разбора.
 # Цель logs-method смешивает типы задач: ученик сам выбирает признак (подбор пароля или сканирование).
+# stage — шаг маршрута; подготовленный по диагностике (role = "diag") пропускает worked и faded.
 # role = "test7" — невиданные задачи недельной проверки. Журнал задачи — в code (показывается блоком).
 # Ключи проверяет tests/review.rs: число = строки журнала с признаком и адресом из условия.
 # Правка формулировки или ответа → увеличить v.
@@ -24,6 +25,7 @@ title = "Журнал веб-сервера: сканирование путей
 [[objective]]
 id = "logs-method"
 title = "Выбор метода: какой признак искать в журнале"
+needs = ["logs-auth", "logs-web"]
 
 # ───────────── logs-auth ─────────────
 
@@ -31,6 +33,7 @@ title = "Выбор метода: какой признак искать в жу
 id = "logs-auth-p1"
 objective = "logs-auth"
 role = "practice"
+stage = "worked"
 kind = "text"
 prompt = """Разобранный пример. Задача: найти источник подбора пароля в журнале sshd.
 Шаг 1. Оставляем строки «Failed password».
@@ -53,6 +56,7 @@ explain = "Четыре неудачи за шесть секунд к разн�
 id = "logs-auth-p2"
 objective = "logs-auth"
 role = "practice"
+stage = "faded"
 kind = "number"
 prompt = """Пример с пропущенным шагом.
 Шаг 1 сделан: ниже только строки «Failed password».
@@ -74,6 +78,7 @@ explain = "Пять неудач за восемь секунд: по шагу 3
 id = "logs-auth-p3"
 objective = "logs-auth"
 role = "practice"
+stage = "solo"
 kind = "text"
 prompt = "Самостоятельно: с какого адреса шёл подбор пароля?"
 code = """
@@ -93,6 +98,7 @@ explain = "203.0.113.50: четыре неудачи за три секунды 
 id = "logs-auth-p4"
 objective = "logs-auth"
 role = "practice"
+stage = "explain"
 kind = "text"
 prompt = """Объясни ключевой шаг: зачем считать неудачи по адресу, а не все «Failed password» вместе?
 1) так быстрее читать журнал
@@ -106,6 +112,7 @@ explain = "Общий счёт растёт и от обычных опечат�
 id = "logs-auth-p5"
 objective = "logs-auth"
 role = "practice"
+stage = "transfer"
 kind = "number"
 prompt = "Новая задача того же типа: сколько неудачных попыток было с 192.0.2.200 перед успешным входом с этого адреса?"
 code = """
@@ -157,6 +164,7 @@ explain = "Три неудачи за секунду к служебным им�
 id = "logs-web-p1"
 objective = "logs-web"
 role = "practice"
+stage = "worked"
 kind = "text"
 prompt = """Разобранный пример. Задача: найти сканирование путей в журнале nginx.
 Шаг 1. Оставляем ответы 404 — запросы к несуществующим путям.
@@ -179,6 +187,7 @@ explain = "Сканер перебирает типичные пути всле�
 id = "logs-web-p2"
 objective = "logs-web"
 role = "practice"
+stage = "faded"
 kind = "number"
 prompt = """Пример с пропущенным шагом.
 Шаг 1 сделан: ниже только ответы 404.
@@ -198,6 +207,7 @@ explain = "Три 404 к /phpmyadmin, /.git/config и /admin.php за секун
 id = "logs-web-p3"
 objective = "logs-web"
 role = "practice"
+stage = "solo"
 kind = "text"
 prompt = "Самостоятельно: с какого адреса сканировали сайт?"
 code = """
@@ -217,6 +227,7 @@ explain = "198.51.100.140: четыре 404 к служебным путям з�
 id = "logs-web-p4"
 objective = "logs-web"
 role = "practice"
+stage = "explain"
 kind = "text"
 prompt = """Объясни ключевой шаг: почему при поиске сканирования смотрят на 404, а не на 200?
 1) сканер перебирает пути вслепую, и большинство его запросов попадает в несуществующие страницы
@@ -230,6 +241,7 @@ explain = "Обычный посетитель идёт по ссылкам и �
 id = "logs-web-p5"
 objective = "logs-web"
 role = "practice"
+stage = "transfer"
 kind = "number"
 prompt = "Новая задача того же типа: сколько ответов 404 получил 192.0.2.77?"
 code = """
@@ -281,6 +293,7 @@ explain = "192.0.2.222: три 404 к служебным путям за сек�
 id = "logs-method-p1"
 objective = "logs-method"
 role = "practice"
+stage = "solo"
 kind = "text"
 prompt = """Учётные записи сотрудников блокируются после неверных паролей, хотя сами они не входили. Что ищешь первым?
 1) строки «Failed password» и счёт по адресу
@@ -294,6 +307,7 @@ explain = "Блокировка после неверных паролей ук�
 id = "logs-method-p2"
 objective = "logs-method"
 role = "practice"
+stage = "solo"
 kind = "text"
 prompt = """За минуту пришли тысячи запросов к /wp-login.php, /.env и /admin, а WordPress на сайте нет. Какой признак проверяешь?
 1) «Accepted password» в журнале sshd
@@ -307,6 +321,7 @@ explain = "Это перебор путей веб-сервера: призна�
 id = "logs-method-p3"
 objective = "logs-method"
 role = "practice"
+stage = "transfer"
 kind = "number"
 prompt = "Смешанный журнал. Выбери нужный признак и посчитай: сколько неудачных входов по SSH было с 203.0.113.12?"
 code = """
@@ -349,3 +364,37 @@ code = """
 """
 answer = ["3"]
 explain = "Три строки «Failed password»; запросы к сайту с ответом 404 — другой признак."
+
+# ───────────── входная диагностика (отдельные задания, в практику и проверку не входят) ─────────────
+
+[[item]]
+id = "logs-auth-d1"
+objective = "logs-auth"
+role = "diag"
+kind = "text"
+prompt = "Диагностика. С какого адреса в журнале идёт подбор пароля?"
+code = """
+09:14:02 sshd: Failed password for root from 198.51.100.4
+09:14:03 sshd: Failed password for admin from 198.51.100.4
+09:14:03 sshd: Accepted publickey for ci from 192.0.2.30
+09:14:05 sshd: Failed password for oracle from 198.51.100.4
+09:14:06 sshd: Failed password for test from 198.51.100.4
+"""
+answer = ["198.51.100.4"]
+explain = "Четыре неудачных входа за четыре секунды с 198.51.100.4; вход ci по ключу — обычная работа."
+
+[[item]]
+id = "logs-web-d1"
+objective = "logs-web"
+role = "diag"
+kind = "number"
+prompt = "Диагностика. Сколько запросов с 203.0.113.9 получили ответ 404?"
+code = """
+203.0.113.9 - - "GET /admin HTTP/1.1" 404 162
+203.0.113.9 - - "GET /backup.zip HTTP/1.1" 404 162
+192.0.2.12 - - "GET /index.html HTTP/1.1" 200 5120
+203.0.113.9 - - "GET /.git/config HTTP/1.1" 404 162
+203.0.113.9 - - "GET /login HTTP/1.1" 200 2048
+"""
+answer = ["3"]
+explain = "Три 404 с одного адреса подряд по служебным путям — признак перебора; /login с ответом 200 в счёт не входит."

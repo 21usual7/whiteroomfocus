@@ -11,7 +11,7 @@ const other = { id: 2, action: { type: 'allow' },
 
 function worker(initial) {
   const noEvent = { addListener() {} };
-  const state = { rules: [...initial], failures: 0, updates: 0, requests: [] };
+  const state = { rules: [...initial], failures: 0, updates: 0, requests: [], stored: {} };
   let receive, disconnect, alarm, message;
   const port = {
     postMessage: data => state.requests.push(data),
@@ -23,7 +23,7 @@ function worker(initial) {
       connectNative: () => port,
       onMessage: { addListener: callback => { message = callback; } },
     },
-    storage: { session: { set() {} }, onChanged: noEvent },
+    storage: { session: { set(v) { Object.assign(state.stored, v); } }, onChanged: noEvent },
     alarms: { create() {}, onAlarm: { addListener: callback => { alarm = callback; } } },
     tabs: { onActivated: noEvent, onUpdated: noEvent },
     windows: { onFocusChanged: noEvent },
@@ -47,6 +47,9 @@ function worker(initial) {
     disconnect: () => disconnect(),
     receive: (session, blocked, request = state.requests.at(-1).request) =>
       receive({ ok: true, request, session, blocked, capture: null }),
+    raw: reply => receive(reply),
+    lastRequest: () => state.requests.at(-1).request,
+    stored: state.stored,
     message: type => new Promise(resolve => {
       assert.equal(message({ type }, {}, resolve), true);
     }),
@@ -141,4 +144,15 @@ test('a host without the blocked list keeps rules and reports the outdated host'
   const status = await run.message('blocking-status');
   assert.match(status.error, /Обнови локальный процесс/);
   assert.equal(status.count, 1);
+});
+
+test('a host with another protocol version keeps rules and names the mismatch', async () => {
+  const run = worker([other]);
+  run.receive(true, ['video.example']);
+  assert.equal((await run.message('blocking-status')).count, 1);
+  run.request();
+  run.raw({ ok: true, request: run.lastRequest(), session: false, blocked: [], capture: null, protocol: 2, version: '9.0.0' });
+  assert.match(run.stored.hostError, /Версии не совпадают/);
+  assert.equal(run.stored.hostOk, false);
+  assert.equal((await run.message('blocking-status')).count, 1);
 });

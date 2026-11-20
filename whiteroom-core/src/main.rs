@@ -5,10 +5,23 @@ use whiteroom_core::ai_context::{self, MATH_BYTES, MATH_OUTPUT, REVIEW_BYTES, RE
 use whiteroom_core::challenge::Challenge;
 use whiteroom_core::sandbox::{DEFAULT, Limits};
 use whiteroom_core::{
-    Db, Module, Res, ai_call, ai_request, read_native, run_session, run_test, write_native,
+    Db, Module, learn, Res, ai_call, ai_request, read_native, run_session, run_test, write_native,
 };
 
-const USAGE: &str = "whiteroom — пилот WHITE ROOM
+const USAGE: &str = "whiteroom — WHITE ROOM
+
+  today                     что делать сегодня: продолжить, проверки, повторения, цели
+  goal add <module.toml>    цель из модуля (без распределения в пилот)
+  goal                      список целей
+  learn [цель]              учебный блок по плану; продолжает незаконченный
+  progress                  удержание, первые попытки, прогноз и факт, очередь
+  spread <дней>             распределить накопившиеся повторения по дням
+  seen                      что WHITE ROOM записывает и хранит сейчас
+  backup [файл]             копия базы; restore <файл> — восстановить (текущая сохранится рядом)
+  module check <файл>       что изменит повторный импорт модуля
+  anki import <tsv> <id> <название>   карточки Anki → модуль TOML (stdout)
+  anki export <файл.toml>   задания модуля → TSV для Anki
+  --version                 версия программы и схемы базы
 
   init <module.toml>        загрузить модуль, случайно разделить цели на группы
   session [новых]           сессия: повторения + новые вопросы (по умолчанию 8)
@@ -366,6 +379,9 @@ fn native() -> Res<()> {
             r["request"] = msg["request"].clone();
         }
         r["ok"] = res.is_ok().into();
+        // Версия контракта с расширением: при расхождении оно показывает ошибку и правила не меняет.
+        r["protocol"] = 1.into();
+        r["version"] = whiteroom_core::VERSION.into();
         if let Err(x) = res {
             r["error"] = x.into();
         }
@@ -412,6 +428,21 @@ fn challenge_dir(id: i64) -> Res<std::path::PathBuf> {
         .join(id.to_string()))
 }
 
+/// Смещение местного времени от UTC в секундах (по `date +%z`), 0 если неизвестно.
+fn local_offset() -> i64 {
+    std::process::Command::new("date")
+        .arg("+%z")
+        .output()
+        .ok()
+        .and_then(|o| {
+            let z = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            let sign = if z.starts_with('-') { -1 } else { 1 };
+            let (h, m) = (z.get(1..3)?.parse::<i64>().ok()?, z.get(3..5)?.parse::<i64>().ok()?);
+            Some(sign * (h * 3600 + m * 60))
+        })
+        .unwrap_or(0)
+}
+
 fn id(s: &str) -> Res<i64> {
     s.parse().map_err(|_| format!("id — число, а не «{s}»"))
 }
@@ -441,7 +472,40 @@ fn run() -> Res<()> {
         return native();
     }
     let db = || Db::open(&db_path()?);
+    let module = |path: &str| -> Res<Module> {
+        Module::parse(&std::fs::read_to_string(path).map_err(|x| format!("{path}: {x}"))?)
+    };
     match a.as_slice() {
+        ["--version"] => println!("{}", whiteroom_core::VERSION),
+        ["today"] => print!("{}", learn::today_text(&db()?.today(now, local_offset())?, local_offset())),
+        ["goal", "add", path] => println!("Цель {} создана. Начать: whiteroom learn", db()?.goal_create(&module(path)?, now)?),
+        ["goal"] => {
+            for g in db()?.goals()?.as_array().into_iter().flatten() {
+                println!("{:>3}  {}  (новых заданий {}{})", g["id"], g["title"].as_str().unwrap_or(""), g["left"],
+                    if g["archived"].is_null() { "" } else { ", в архиве" });
+            }
+        }
+        ["learn"] => learn::run_block(&db()?, &mut stdin().lock(), &mut stdout(), None, now)?,
+        ["learn", g] => learn::run_block(&db()?, &mut stdin().lock(), &mut stdout(), Some(id(g)?), now)?,
+        ["progress"] => print!("{}", learn::progress_text(&db()?.progress(now)?)),
+        ["spread", d] => println!("Распределено повторений: {}", db()?.spread_reviews(id(d)?, now)?),
+        ["seen"] => println!("{}", serde_json::to_string_pretty(&db()?.seen(&db_path()?)?).map_err(|x| x.to_string())?),
+        ["backup"] => {
+            let dest = format!("{}.{now}.bak", db_path()?);
+            db()?.backup(&dest)?;
+            println!("{dest}");
+        }
+        ["backup", dest] => db()?.backup(dest)?,
+        ["restore", src] => {
+            let saved = learn::restore(src, &db_path()?, now)?;
+            println!("Восстановлено из {src}.{}", if saved.is_empty() { String::new() } else { format!(" Прежняя база: {saved}") });
+        }
+        ["module", "check", path] => println!("{}", serde_json::to_string_pretty(&db()?.module_preview(&module(path)?)?).map_err(|x| x.to_string())?),
+        ["anki", "import", path, mid, title] => {
+            let tsv = std::fs::read_to_string(path).map_err(|x| format!("{path}: {x}"))?;
+            print!("{}", toml::to_string(&learn::anki_import(&tsv, mid, title)?).map_err(|x| x.to_string())?);
+        }
+        ["anki", "export", path] => print!("{}", learn::anki_export(&module(path)?)),
         ["init", path] => {
             let src = std::fs::read_to_string(path).map_err(|x| format!("{path}: {x}"))?;
             let m = Module::parse(&src)?;

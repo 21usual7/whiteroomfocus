@@ -171,11 +171,11 @@ fieldset:disabled input, fieldset:disabled select { opacity: .6; cursor: wait; }
 #stop-study { margin-top: .75rem; padding: .7rem 1.8rem; border-color: var(--text); font: 600 .76rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
 
 /* ───── Разделы: повторения, практика, сайты. ───── */
-#reviews, #practice, #sites { animation: rise .45s var(--ease) both; }
-#review-content, #practice-controls, #site-controls { padding: clamp(1rem, 3vw, 1.6rem); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+#reviews, #practice, #sites, #start, #progress, #materials, #seen { animation: rise .45s var(--ease) both; }
+#review-content, #practice-controls, #site-controls, #learn-view, .learn-panel, #materials-view, #seen-view { padding: clamp(1rem, 3vw, 1.6rem); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 #review-content > p:first-child { margin-top: 0; color: var(--muted); font: .74rem var(--mono); letter-spacing: .1em; text-transform: uppercase; }
 #review-content h2.prose, #challenge-detail h2 { font-size: clamp(1.2rem, 3vw, 1.55rem); line-height: 1.3; letter-spacing: -.02em; overflow-wrap: anywhere; }
-#focus-log, #review-content pre { padding: .8rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); }
+#focus-log, #review-content pre, #learn-view pre { padding: .8rem 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); }
 #review-content label, #challenge-detail label, #add-site label {
   display: inline-flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; max-width: 100%;
 }
@@ -400,7 +400,7 @@ body.in-room #study-controls, body.in-room #active-study { transition: none; }
   background: rgba(12, 15, 22, .55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 }
 body.setup .logs { opacity: .35; }
-#review-content, #practice-controls, #site-controls {
+#review-content, #practice-controls, #site-controls, #learn-view, .learn-panel, #materials-view, #seen-view {
   background: rgba(14, 17, 25, .7); border-color: rgba(236, 238, 241, .09);
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
 }
@@ -781,3 +781,62 @@ body:has(#tutor:not([hidden])) main > header { margin-bottom: clamp(.8rem, 2vh, 
 .pilot #pilot-show { justify-self: start; }
 #pilot-text, #review-content pre, .draft { max-width: 100%; overflow-wrap: anywhere; }
 #review-content ol { padding-left: 1.2rem; }
+
+/* ───── WHITE ROOM 1.0: сегодня, цель, блок, прогресс, материалы, данные. ───── */
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) { display: grid; gap: .8rem; min-width: 0; }
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) > * { margin: 0; min-width: 0; }
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) h2 { margin: 0; font-size: clamp(1.15rem, 3vw, 1.45rem); }
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) h3 { margin: .6rem 0 0; color: var(--muted); font: 500 .7rem/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+:is(#learn-view, #materials-view, #seen-view) label:not(:has(> [type="checkbox"])) { display: grid; gap: .3rem; max-width: 40rem; font-size: .88rem; }
+:is(#learn-view, #materials-view) label :is(input:not([type="checkbox"], [type="number"]), select, textarea) { width: 100%; min-width: 0; }
+:is(#learn-view, #materials-view, #learn-dialog) textarea {
+  box-sizing: border-box; width: 100%; padding: .55rem .7rem; border: 1px solid var(--control-line); border-radius: var(--radius);
+  background: var(--bg-2); color: var(--text); font: 400 .92rem/1.45 var(--sans); resize: vertical;
+}
+textarea.code { font-family: var(--mono); font-size: .84rem; }
+.learn-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.learn-list > li { display: grid; gap: .45rem; padding: .7rem 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.learn-list > li > p { margin: 0; color: var(--muted); font-size: .88rem; }
+.learn-list strong { display: block; font-weight: 600; line-height: 1.35; }
+.learn-list small, #learn-view small { display: block; margin-top: .2rem; color: var(--muted); font-size: .8rem; line-height: 1.45; }
+.learn-list fieldset { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .84rem; }
+.learn-list fieldset legend { margin-bottom: .3rem; }
+.learn-list label { display: inline-flex; align-items: center; gap: .3rem; }
+.learn-list .tutor-actions label { display: inline-flex; grid-auto-flow: column; align-items: center; }
+.learn-note { padding: .7rem .9rem; border-left: 2px solid var(--cyan); background: var(--bg-2); border-radius: var(--radius); }
+.learn-note p { margin: 0 0 .5rem; }
+.learn-material { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: .5rem; align-items: end; }
+.learn-why { color: var(--muted); font-size: .86rem; }
+.learn-work { display: grid; gap: .7rem; min-width: 0; }
+.learn-work > * { margin: 0; }
+.learn-work form { display: grid; gap: .6rem; justify-items: start; }
+.learn-work form label { width: 100%; }
+.learn-work form > button { border-color: var(--door); background: var(--door); color: var(--door-text); }
+.learn-work h2.prose { font-size: clamp(1.1rem, 3vw, 1.4rem); line-height: 1.35; }
+.learn-hint[data-note]::after { content: attr(data-note); display: block; margin-top: .3rem; color: var(--muted); font-size: .8rem; }
+.learn-expr { color: var(--muted); font-family: var(--mono); }
+.learn-timer { font: 400 clamp(2rem, 8vw, 3rem)/1 var(--mono); font-variant-numeric: tabular-nums; }
+.learn-verdict { font-weight: 600; }
+.learn-low { display: inline-block; margin-top: .3rem; padding: .1rem .45rem; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); font: .7rem var(--mono); }
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) details > summary { cursor: pointer; padding: .3rem 0; color: var(--muted); font-size: .86rem; }
+#materials-view details { padding: .4rem .7rem; border: 1px solid var(--line); border-radius: var(--radius); }
+#materials-view details[open] { display: grid; gap: .6rem; padding-bottom: .8rem; }
+#materials-view details + details { margin-top: .4rem; }
+#learn-dialog {
+  box-sizing: border-box; width: min(32rem, calc(100% - 2rem)); padding: 1.1rem; border: 1px solid var(--line-strong);
+  border-radius: 6px; background: var(--surface); color: var(--text);
+}
+#learn-dialog::backdrop { background: rgba(5, 6, 8, .6); }
+#learn-dialog form { display: grid; gap: .7rem; }
+#learn-dialog h2 { margin: 0; }
+@media (max-width: 560px) {
+  .learn-material { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  nav { flex-wrap: wrap; justify-content: flex-start; overflow: visible; gap: .1rem .5rem; }
+}
+:is(#learn-view, .learn-panel, #materials-view, #seen-view) > p { color: var(--muted); font-size: .9rem; }
+@media (max-width: 1100px) and (min-width: 421px) {
+  nav button { padding: .4rem .4rem; letter-spacing: .05em; }
+}
+:is(.learn-work, #learn-view, .learn-panel, #materials-view, #seen-view) > button { justify-self: start; }

@@ -426,5 +426,5 @@ fn log_route_keys_match_the_logs_and_steps_are_ordered() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 13);
+    assert_eq!(checked, 15);
 }

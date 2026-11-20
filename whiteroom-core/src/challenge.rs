@@ -165,18 +165,27 @@ impl Challenge {
 
 /// Сравнение через SymPy в песочнице: ответ пользователя — это выражение, разбор которого равносилен eval.
 fn sympy_equal(a: &str, b: &str) -> Res<bool> {
+    expr_equal(a, b, "")
+}
+
+/// Равенство выражений с переменными. `domain` — область всех переменных: `positive`, `real`
+/// или пусто (комплексные). Так `sqrt(x^2)` равно `x` только при `positive`.
+pub fn expr_equal(a: &str, b: &str, domain: &str) -> Res<bool> {
     let job = Job::new()?;
     // «e» — число Эйлера, как пишут люди (в SymPy это E). Свободные переменные в ответе — просто неверно.
-    let script = "import sys\nfrom sympy import sympify, simplify, N, E\n\
-        a, b = sys.stdin.read().split('\\n')[:2]\n\
-        a, b = sympify(a, locals={'e': E}), sympify(b, locals={'e': E})\n\
+    let script = "import sys\nfrom sympy import sympify, simplify, N, E, Symbol\n\
+        a, b, dom = (sys.stdin.read().split('\\n') + [''])[:3]\n\
+        a, b = sympify(a.replace('^', '**'), locals={'e': E}), sympify(b.replace('^', '**'), locals={'e': E})\n\
+        kw = {dom: True} if dom in ('positive', 'real') else {}\n\
+        sub = {s: Symbol(s.name, **kw) for s in (a - b).free_symbols}\n\
+        a, b = a.subs(sub), b.subs(sub)\n\
         d = simplify(a - b)\n\
         print('eq' if d == 0 or (not d.free_symbols and abs(complex(N(d))) < 1e-9) else 'ne')\n";
     sandbox::put(&job, &[("eq.py", script.as_bytes())])?;
     let o = sandbox::run(
         &job,
         &["python3", "/work/src/eq.py"],
-        format!("{a}\n{b}\n").as_bytes(),
+        format!("{a}\n{b}\n{domain}\n").as_bytes(),
         BUILD,
     )?;
     match String::from_utf8_lossy(&o.stdout).trim() {
@@ -187,6 +196,16 @@ fn sympy_equal(a: &str, b: &str) -> Res<bool> {
             text(&o.stderr).lines().last().unwrap_or("")
         )),
     }
+}
+
+/// Задание `code`: код ученика и тесты автора в одной программе Python в песочнице (без сети,
+/// лимиты `DEFAULT`). Зачёт — последняя строка вывода `ok`.
+pub fn code_passes(code: &str, tests: &str) -> Res<bool> {
+    let job = Job::new()?;
+    let prog = format!("{code}\n\n{tests}\nprint('ok')\n");
+    sandbox::put(&job, &[("main.py", prog.as_bytes())])?;
+    let o = sandbox::run(&job, &["python3", "/work/src/main.py"], b"", DEFAULT)?;
+    Ok(String::from_utf8_lossy(&o.stdout).lines().last().map(str::trim) == Some("ok"))
 }
 
 fn validate_math(ch: Challenge) -> Res<Ready> {

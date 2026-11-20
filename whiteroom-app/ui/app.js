@@ -436,7 +436,7 @@ function closeAwake() {
   body.classList.remove("awake");
   syncScene();
   setTimeout(() => { awake.hidden = true; }, reducedMotion() ? 0 : 700);
-  $("open-setup").focus();
+  ($("study").hidden ? document.querySelector('nav [aria-pressed="true"]') : $("open-setup")).focus();
 }
 
 $("awake-go").addEventListener("click", closeAwake);

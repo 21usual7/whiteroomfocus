@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="theme.css">
   <script src="field.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="learn.js" defer></script>
 </head>
 <body>
   <canvas id="field" aria-hidden="true"></canvas>
@@ -15,17 +16,25 @@
     <header>
       <h1><span class="mark" aria-hidden="true"></span>WHITE ROOM</h1>
       <nav aria-label="Разделы">
-        <button type="button" aria-controls="study" aria-pressed="true">Фокус</button>
-        <button type="button" aria-controls="dashboard" aria-pressed="false">Дашборд</button>
+        <button type="button" aria-controls="start" aria-pressed="true">Сегодня</button>
+        <button type="button" aria-controls="study" aria-pressed="false">Фокус</button>
         <button type="button" aria-controls="reviews" aria-pressed="false">Повторения</button>
+        <button type="button" aria-controls="progress" aria-pressed="false">Прогресс</button>
+        <button type="button" aria-controls="materials" aria-pressed="false">Материалы</button>
+        <button type="button" aria-controls="dashboard" aria-pressed="false">Дашборд</button>
         <button type="button" aria-controls="practice" aria-pressed="false">Практика</button>
         <button type="button" aria-controls="sites" aria-pressed="false">Сайты</button>
         <button type="button" aria-controls="tutor" aria-pressed="false">Тьютор</button>
+        <button type="button" aria-controls="seen" aria-pressed="false">Данные</button>
       </nav>
       <button type="button" id="motion" class="motion">Фон: живой</button>
       <p class="notice" id="help-lock" role="status" hidden></p>
     </header>
-    <section id="study" aria-label="Сессия">
+    <section id="start" aria-label="Сегодня">
+      <fieldset id="learn-view"></fieldset>
+      <p class="notice" id="learn-message" role="status"></p>
+    </section>
+    <section id="study" aria-label="Сессия" hidden>
       <div class="stage">
         <div class="deck">
           <p class="eyebrow">Кибербезопасность · лаборатория</p>
@@ -207,7 +216,29 @@
       </fieldset>
       <p class="notice" id="sites-message" role="status"></p>
     </section>
+    <section id="progress" aria-label="Прогресс" hidden>
+      <div id="progress-view" class="learn-panel"></div>
+      <p class="notice" id="progress-message" role="status"></p>
+    </section>
+    <section id="materials" aria-label="Материалы" hidden>
+      <fieldset id="materials-view"></fieldset>
+      <p class="notice" id="materials-message" role="status"></p>
+    </section>
+    <section id="seen" aria-label="Что WHITE ROOM видит" hidden>
+      <fieldset id="seen-view"></fieldset>
+      <p class="notice" id="seen-message" role="status"></p>
+    </section>
   </main>
+  <dialog id="learn-dialog" aria-labelledby="learn-dialog-title">
+    <form method="dialog">
+      <h2 id="learn-dialog-title"></h2>
+      <textarea id="learn-dialog-text" rows="4" aria-labelledby="learn-dialog-title"></textarea>
+      <div class="tutor-actions">
+        <button value="save" class="primary">Сохранить</button>
+        <button value="" formnovalidate>Отмена · Esc</button>
+      </div>
+    </form>
+  </dialog>
   <div id="tutor-dialog" role="dialog" aria-modal="true" aria-labelledby="tutor-dialog-title" hidden>
     <div class="tutor-head">
       <h2 id="tutor-dialog-title">Тьютор · теория</h2>

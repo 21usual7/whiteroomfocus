@@ -7,6 +7,7 @@ pub mod brief;
 pub mod challenge;
 pub mod focus;
 pub mod idle;
+pub mod learn;
 pub mod overlay;
 pub mod sandbox;
 pub mod setup;
@@ -29,19 +30,37 @@ pub const IDLE: &str = "(простой)";
 const TEST_DELAY: i64 = 7 * DAY;
 const RETENTION: f32 = 0.9;
 const MAX_REVIEWS: usize = 20;
+/// Версия схемы SQLite (`user_version`). Новее — отказ открытия, старее — миграция с копией.
+pub const SCHEMA: i64 = 2;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Module {
     pub id: String,
     pub title: String,
+    /// cyber, math, code, german, research, custom. Старые модули — кибербезопасность.
+    #[serde(default = "cyber")]
+    pub domain: String,
     pub objective: Vec<Objective>,
     pub item: Vec<Item>,
 }
 
-#[derive(Deserialize)]
+pub const DOMAINS: [&str; 6] = ["cyber", "math", "code", "german", "research", "custom"];
+
+fn cyber() -> String {
+    "cyber".into()
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Objective {
     pub id: String,
     pub title: String,
+    /// Предпосылки: навыки модуля, которые идут раньше (редактируемый граф `prereq`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
+    /// Срок отложенной проверки, дней: 7 (D5) или 30 — задаётся ролью `test30` у её заданий.
+    #[serde(skip)]
+    pub horizon: i64,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -61,6 +80,27 @@ pub struct Item {
     #[serde(default)]
     pub hint: Option<String>,
     pub explain: String,
+    /// Шаг маршрута: worked (разобранный пример), faded (с пропуском), solo, explain (самообъяснение),
+    /// transfer (перенос на новый пример). Подготовленный ученик пропускает worked и faded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    /// Откуда задание: материал, глава, ссылка на фрагмент.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// card и explain: критерии самооценки, показываются вместе с эталоном.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rubric: Option<String>,
+    /// expr: область допустимых значений переменных — positive или real (по умолчанию real).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    /// code: тесты на Python (assert), запускаются в песочнице после кода ученика.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<String>,
+}
+
+/// Как оценивается задание: auto — детерминированно, self — самооценка по эталону и рубрике.
+pub fn grading(kind: &str) -> &'static str {
+    if matches!(kind, "card" | "explain") { "self" } else { "auto" }
 }
 
 fn one() -> i64 {
@@ -75,8 +115,30 @@ pub(crate) fn e<E: std::fmt::Display>(x: E) -> String {
 
 impl Module {
     pub fn parse(src: &str) -> Res<Module> {
-        let m: Module = toml::from_str(src).map_err(e)?;
-        let objs: HashSet<_> = m.objective.iter().map(|o| o.id.as_str()).collect();
+        let mut m: Module = toml::from_str(src).map_err(e)?;
+        Self::check(&mut m)?;
+        Ok(m)
+    }
+
+    /// Проверка структуры: та же для TOML и для модуля из редактора окна.
+    pub fn check(m: &mut Module) -> Res<()> {
+        if !DOMAINS.contains(&m.domain.as_str()) {
+            return Err(format!("domain должен быть одним из: {}", DOMAINS.join(", ")));
+        }
+        let objs: HashSet<_> = m.objective.iter().map(|o| o.id.clone()).collect();
+        for o in &m.objective {
+            if let Some(n) = o.needs.iter().find(|n| !objs.contains(*n) || **n == o.id) {
+                return Err(format!("objective {}: неизвестная предпосылка {n}", o.id));
+            }
+        }
+        // test30 — отдельная группа целей с проверкой через 30 дней (D5); в базе роль формы — test7.
+        for o in &mut m.objective {
+            let roles: HashSet<_> = m.item.iter().filter(|i| i.objective == o.id).map(|i| i.role.as_str()).collect();
+            if roles.contains("test7") && roles.contains("test30") {
+                return Err(format!("objective {}: одна цель — один срок проверки (test7 или test30)", o.id));
+            }
+            o.horizon = if roles.contains("test30") { 30 } else { 7 };
+        }
         let mut ids = HashSet::new();
         for it in &m.item {
             let bad = |why: &str| Err(format!("item {}: {why}", it.id));
@@ -86,20 +148,31 @@ impl Module {
             if !objs.contains(it.objective.as_str()) {
                 return bad("неизвестная цель");
             }
-            if !["practice", "test7"].contains(&it.role.as_str()) {
-                return bad("role должен быть practice или test7");
+            if !["practice", "test7", "test30", "diag"].contains(&it.role.as_str()) {
+                return bad("role должен быть practice, diag, test7 или test30");
             }
             if it.answer.is_empty() {
                 return bad("нет ответа");
             }
+            // Контроль и диагностика оцениваются без участия ученика.
+            if it.role != "practice" && grading(&it.kind) == "self" {
+                return bad("в diag, test7 и test30 — только задания с автоматической оценкой");
+            }
             match it.kind.as_str() {
-                "text" => {}
+                "text" | "card" | "explain" => {}
+                "expr" if it.domain.as_deref().is_none_or(|d| d == "positive" || d == "real") => {}
+                "expr" => return bad("domain для expr: positive или real"),
+                "code" if it.tests.is_some() => {}
+                "code" => return bad("для code нужны tests"),
                 "number" if it.answer.iter().all(|a| parse_num(a).is_some()) => {}
                 "number" => return bad("ответ не число"),
-                _ => return bad("kind должен быть number или text"),
+                _ => return bad("kind: number, text, expr, code, card или explain"),
+            }
+            if it.stage.as_deref().is_some_and(|s| !["worked", "faded", "solo", "explain", "transfer"].contains(&s)) {
+                return bad("stage: worked, faded, solo, explain или transfer");
             }
         }
-        Ok(m)
+        Ok(())
     }
 }
 
@@ -123,11 +196,19 @@ fn norm(s: &str) -> String {
         .collect()
 }
 
+/// Детерминированная оценка. expr — равенство в SymPy с областью из `domain`, code — тесты
+/// в песочнице. Если песочница недоступна, expr сравнивается как текст, а code считается неверным.
+/// card и explain здесь сравниваются с эталоном как текст; их зачёт — самооценка (`learn::block_answer`).
 pub fn grade(it: &Item, ans: &str) -> bool {
-    if it.kind == "number" {
-        parse_num(ans).is_some_and(|n| it.answer.iter().any(|a| parse_num(a) == Some(n)))
-    } else {
-        it.answer.iter().any(|a| norm(a) == norm(ans))
+    match it.kind.as_str() {
+        "number" => parse_num(ans).is_some_and(|n| it.answer.iter().any(|a| parse_num(a) == Some(n))),
+        _ if it.answer.iter().any(|a| norm(a) == norm(ans)) => true,
+        "expr" if !ans.trim().is_empty() => it
+            .answer
+            .iter()
+            .any(|a| challenge::expr_equal(ans, a, it.domain.as_deref().unwrap_or("real")).unwrap_or(false)),
+        "code" => challenge::code_passes(ans, it.tests.as_deref().unwrap_or("")).unwrap_or(false),
+        _ => false,
     }
 }
 
@@ -139,6 +220,24 @@ pub struct Db {
 impl Db {
     pub fn open(path: &str) -> Res<Db> {
         let mut c = Connection::open(path).map_err(e)?;
+        c.busy_timeout(std::time::Duration::from_secs(5)).map_err(e)?;
+        let ver: i64 = c.pragma_query_value(None, "user_version", |r| r.get(0)).map_err(e)?;
+        if ver > SCHEMA {
+            return Err(format!(
+                "База {path} создана более новой версией WHITE ROOM (схема {ver}, эта программа знает {SCHEMA}). \
+                 Обнови CLI и окно до одной версии или восстанови копию: whiteroom restore <файл>."
+            ));
+        }
+        let has_data: bool = c
+            .query_row("SELECT count(*)>0 FROM sqlite_master WHERE name='objective'", [], |r| r.get(0))
+            .map_err(e)?;
+        if has_data && ver < SCHEMA && path != ":memory:" {
+            // Копия до миграции: при сбое её можно вернуть командой restore (README, «Восстановление»).
+            let bak = format!("{path}.pre-v{SCHEMA}.bak");
+            if !std::path::Path::new(&bak).exists() {
+                c.execute("VACUUM INTO ?", [&bak]).map_err(|x| format!("не удалось сохранить копию до миграции: {x}"))?;
+            }
+        }
         c.execute_batch(
             "PRAGMA foreign_keys = ON;
              CREATE TABLE IF NOT EXISTS objective(id TEXT PRIMARY KEY, title TEXT NOT NULL,
@@ -221,6 +320,7 @@ impl Db {
         }
         challenge::migrate(&c)?;
         ai_context::migrate(&c)?;
+        learn::migrate(&mut c)?;
         Ok(Db {
             c,
             fsrs: FSRS::new(&DEFAULT_PARAMETERS).map_err(e)?,
@@ -255,17 +355,7 @@ impl Db {
                 )
                 .map_err(e)?;
         }
-        for o in &m.objective {
-            self.c
-                .execute(
-                    "UPDATE objective SET title=? WHERE id=?",
-                    params![o.title, o.id],
-                )
-                .map_err(e)?;
-        }
-        for (ord, it) in m.item.iter().enumerate() {
-            self.put_item(it, ord as i64)?;
-        }
+        self.load_known(m, now)?;
         let mut st = self
             .c
             .prepare("SELECT id, arm FROM objective ORDER BY id")
@@ -276,7 +366,57 @@ impl Db {
         rows.collect::<Result<_, _>>().map_err(e)
     }
 
+    /// Названия, модуль, срок проверки, предпосылки и задания уже заведённых целей.
+    fn load_known(&self, m: &Module, now: i64) -> Res<()> {
+        self.c
+            .execute(
+                "INSERT INTO module(id, title, domain, loaded) VALUES (?1,?2,?3,?4)
+                 ON CONFLICT(id) DO UPDATE SET title=?2, domain=?3, loaded=?4",
+                params![m.id, m.title, m.domain, now],
+            )
+            .map_err(e)?;
+        for o in &m.objective {
+            self.c
+                .execute(
+                    "UPDATE objective SET title=?, module=?, horizon=? WHERE id=?",
+                    params![o.title, m.id, o.horizon, o.id],
+                )
+                .map_err(e)?;
+            for n in &o.needs {
+                self.c
+                    .execute("INSERT OR IGNORE INTO prereq(skill, needs) VALUES (?,?)", params![o.id, n])
+                    .map_err(e)?;
+            }
+        }
+        for (ord, it) in m.item.iter().enumerate() {
+            self.put_item(it, ord as i64)?;
+        }
+        Ok(())
+    }
+
+    /// Правка задания без смены `v` получает следующую версию: старые попытки ссылаются на свою форму
+    /// в `item_version` и не переоцениваются.
     fn put_item(&self, it: &Item, ord: i64) -> Res<()> {
+        let mut it = it.clone();
+        let cur: Option<(i64, String)> = self
+            .c
+            .query_row("SELECT v, data FROM item WHERE id=?", [&it.id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()
+            .map_err(e)?;
+        if let Some((v, data)) = cur {
+            let old: Item = serde_json::from_str(&data).map_err(e)?;
+            it.v = it.v.max(v);
+            if serde_json::to_string(&Item { v: it.v, ..old }).map_err(e)? != serde_json::to_string(&it).map_err(e)? && it.v == v {
+                it.v = v + 1;
+            }
+        }
+        let it = &it;
+        self.c
+            .execute(
+                "INSERT OR IGNORE INTO item_version(id, v, data) VALUES (?,?,?)",
+                params![it.id, it.v, serde_json::to_string(it).map_err(e)?],
+            )
+            .map_err(e)?;
         self.c
             .execute(
                 "INSERT INTO item(id, v, ord, objective, role, data) VALUES (?1,?2,?3,?4,?5,?6)
@@ -286,7 +426,7 @@ impl Db {
                     it.v,
                     ord,
                     it.objective,
-                    it.role,
+                    if it.role == "test30" { "test7" } else { &it.role },
                     serde_json::to_string(it).map_err(e)?
                 ],
             )
@@ -381,10 +521,40 @@ impl Db {
         ms: i64,
         now: i64,
     ) -> Res<()> {
+        self.record_rated(session, it, role, ans, ok, hint, false, ms, now)
+    }
+
+    /// `hard` — самооценка «вспомнил с трудом» (card, explain): верный ответ получает `Hard`.
+    /// Перед ответом на повторение в попытку пишется прогноз FSRS (`p_recall`) для «Прогноза и факта».
+    pub fn record_rated(
+        &self,
+        session: Option<i64>,
+        it: &Item,
+        role: &str,
+        ans: &str,
+        ok: bool,
+        hint: bool,
+        hard: bool,
+        ms: i64,
+        now: i64,
+    ) -> Res<()> {
+        let p_recall: Option<f32> = self
+            .c
+            .query_row(
+                "SELECT stability, difficulty, stability_fast, last FROM card WHERE item_id=? AND ?='review'",
+                params![it.id, role],
+                |r| {
+                    let st = MemoryState { stability: r.get(0)?, difficulty: r.get(1)?, stability_fast: r.get(2)? };
+                    Ok(self.fsrs.current_retrievability(st, (now - r.get::<_, i64>(3)?).max(0) as f32 / DAY as f32))
+                },
+            )
+            .optional()
+            .map_err(e)?;
         self.c
             .execute(
-                "INSERT INTO attempt(session_id, item_id, item_v, role, ts, answer, correct, hint, ms) VALUES (?,?,?,?,?,?,?,?,?)",
-                params![session, it.id, it.v, role, now, ans, ok, hint, ms],
+                "INSERT INTO attempt(session_id, item_id, item_v, role, ts, answer, correct, hint, ms, graded, p_recall)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                params![session, it.id, it.v, role, now, ans, ok, hint, ms, grading(&it.kind), p_recall],
             )
             .map_err(e)?;
         if role != "new" && role != "review" {
@@ -413,7 +583,7 @@ impl Db {
             .fsrs
             .next_states_with_elapsed_days(prev.map(|p| p.0), RETENTION, elapsed)
             .map_err(e)?;
-        let next = if !ok || hint { s.again } else { s.good };
+        let next = if !ok || hint { s.again } else if hard { s.hard } else { s.good };
         let due = now + (next.interval * DAY as f32) as i64;
         self.c
             .execute(
@@ -443,7 +613,7 @@ impl Db {
         let mut st = self
             .c
             .prepare(&format!(
-                "SELECT o.id, o.title, o.arm, o.done_at, o.outside_min,
+                "SELECT o.id, o.title, o.arm, o.done_at+(o.horizon-7)*86400, o.outside_min,
                    (SELECT count(*) FROM item i WHERE i.objective=o.id AND i.role='practice'),
                    (SELECT count(*) FROM card c JOIN item i ON i.id=c.item_id WHERE i.objective=o.id),
                    (SELECT sum(a.correct) FROM attempt a JOIN item i ON i.id=a.item_id WHERE i.objective=o.id AND a.role='test7'),
@@ -565,6 +735,13 @@ impl Db {
             "test_block",
             "test_exposure",
             "ai_draft",
+            "item_version",
+            "module",
+            "module_rev",
+            "prereq",
+            "goal",
+            "learn_block",
+            "block_step",
         ] {
             let mut st = self.c.prepare(&format!("SELECT * FROM {t}")).map_err(e)?;
             let cols: Vec<String> = st.column_names().map(|s| s.to_string()).collect();
@@ -957,6 +1134,11 @@ pub fn ai_parse(resp: &serde_json::Value, now: i64) -> Res<(String, Vec<Item>)> 
                         answer,
                         hint: Some(s("hint")).filter(|h| !h.is_empty()),
                         explain: s("explain"),
+                        stage: None,
+                        source: None,
+                        rubric: None,
+                        domain: None,
+                        tests: None,
                     })
                 })
                 .take(MAX_AI_QUESTIONS)

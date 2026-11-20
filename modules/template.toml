@@ -1,0 +1,68 @@
+# Шаблон своей цели. Скопируй файл, поменяй id и тексты, импортируй: whiteroom goal add мой.toml
+# или в окне: «Материалы» → «Импорт TOML». Проверить изменения перед повторным импортом:
+# whiteroom module check мой.toml
+#
+# Поля задания:
+#   role   — practice (учёба), diag (входная диагностика), test7 / test30 (отложенная проверка
+#            через 7 или 30 дней; у одной цели — один срок)
+#   kind   — number, text (варианты ответа в answer), expr (выражение, SymPy; domain = positive|real),
+#            code (Python, tests — assert-ы), card (карточка, самооценка), explain (свободный ответ по rubric)
+#            В diag и test — только number, text, expr, code: их оценка не зависит от ученика.
+#   stage  — worked (разобранный пример), faded (с пропуском), solo, explain, transfer (итоговая проверка блока)
+#   source — откуда задание; rubric — критерии самооценки; hint — подсказка (ответ с ней не самостоятельный)
+id = "my-goal"
+title = "Моя цель"
+domain = "custom"
+
+[[objective]]
+id = "my-skill"
+title = "Первый навык"
+
+[[item]]
+id = "my-skill-d1"
+objective = "my-skill"
+role = "diag"
+kind = "text"
+prompt = "Короткий вопрос, который показывает, знаешь ли ты основу."
+answer = ["ответ", "допустимый вариант"]
+explain = "Почему ответ такой."
+
+[[item]]
+id = "my-skill-p1"
+objective = "my-skill"
+role = "practice"
+stage = "worked"
+kind = "text"
+prompt = "Разобранный пример по шагам. Проверь себя: вопрос по примеру."
+answer = ["ответ"]
+explain = "Что важно в примере."
+
+[[item]]
+id = "my-skill-p2"
+objective = "my-skill"
+role = "practice"
+stage = "solo"
+kind = "card"
+prompt = "Вопрос карточки."
+answer = ["эталон"]
+rubric = "Что должно быть в ответе, чтобы считать его вспомненным."
+explain = ""
+
+[[item]]
+id = "my-skill-p3"
+objective = "my-skill"
+role = "practice"
+stage = "transfer"
+kind = "text"
+prompt = "Новая задача на тот же навык."
+answer = ["ответ"]
+explain = ""
+
+[[item]]
+id = "my-skill-t1"
+objective = "my-skill"
+role = "test7"
+kind = "text"
+prompt = "Задание для проверки через 7 дней — не похожее на практику дословно."
+answer = ["ответ"]
+explain = ""

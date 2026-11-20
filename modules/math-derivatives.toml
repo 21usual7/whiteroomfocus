@@ -1,0 +1,192 @@
+# Модуль: производные. Ответы expr сравниваются в SymPy (песочница) с областью значений из domain:
+# positive — все переменные > 0, real — вещественные. Запись: x^2 или x**2, sqrt(x), exp(x), log(x) — натуральный.
+# Доказательство (explain) оценивается самооценкой по эталону и рубрике, в контроль не входит.
+id = "math-derivatives"
+title = "Производные: правила и цепное правило"
+domain = "math"
+
+[[objective]]
+id = "math-power"
+title = "Производная степени и суммы"
+
+[[objective]]
+id = "math-chain"
+title = "Цепное правило"
+needs = ["math-power"]
+
+[[item]]
+id = "math-power-d1"
+objective = "math-power"
+role = "diag"
+kind = "expr"
+prompt = "Диагностика. Найди производную f(x) = x^4 + 3x."
+answer = ["4*x^3 + 3"]
+explain = "(x^n)' = n·x^(n−1), производная суммы — сумма производных: 4x³ + 3."
+
+[[item]]
+id = "math-power-p1"
+objective = "math-power"
+role = "practice"
+stage = "worked"
+kind = "expr"
+prompt = """Разобранный пример. f(x) = 5x³ − 2x.
+Шаг 1. (x³)' = 3x², значит (5x³)' = 15x².
+Шаг 2. (2x)' = 2.
+Шаг 3. f'(x) = 15x² − 2.
+Проверь себя: запиши f'(x) из примера."""
+answer = ["15*x^2 - 2"]
+hint = "Ответ — шаг 3 примера."
+explain = "Множитель выносится за знак производной, степень опускается на единицу."
+source = "Правило степени: (x^n)' = n·x^(n−1)"
+
+[[item]]
+id = "math-power-p2"
+objective = "math-power"
+role = "practice"
+stage = "faded"
+kind = "expr"
+prompt = """Пример с пропуском. f(x) = 2x⁵ + x².
+Шаг 1 сделан: (2x⁵)' = 10x⁴.
+Шаг 2 — твой: чему равна (x²)'?"""
+answer = ["2*x"]
+hint = "n = 2: опусти степень и умножь на неё."
+explain = "(x²)' = 2x, так что f'(x) = 10x⁴ + 2x."
+
+[[item]]
+id = "math-power-p3"
+objective = "math-power"
+role = "practice"
+stage = "solo"
+kind = "expr"
+prompt = "Самостоятельно: f(x) = 7x² − 4x + 9. Найди f'(x)."
+answer = ["14*x - 4"]
+hint = "Производная константы — 0."
+explain = "14x − 4: константа 9 исчезает."
+
+[[item]]
+id = "math-power-p4"
+objective = "math-power"
+role = "practice"
+stage = "explain"
+kind = "explain"
+prompt = "Объясни своими словами: почему производная константы равна нулю?"
+answer = ["Константа не меняется при изменении x: приращение функции всегда 0, значит предел отношения приращений — 0."]
+rubric = "1) говорится, что значение не меняется; 2) упомянуто приращение или наклон касательной; 3) вывод: предел 0."
+explain = "График константы — горизонтальная прямая, её наклон 0."
+
+[[item]]
+id = "math-power-p5"
+objective = "math-power"
+role = "practice"
+stage = "transfer"
+kind = "expr"
+prompt = "Перенос: g(t) = t^(1/2) при t > 0. Найди g'(t)."
+answer = ["1/(2*sqrt(t))"]
+domain = "positive"
+explain = "Правило степени работает и для дробной степени: (1/2)·t^(−1/2) = 1/(2√t)."
+
+[[item]]
+id = "math-power-t1"
+objective = "math-power"
+role = "test7"
+kind = "expr"
+prompt = "Найди производную f(x) = 6x³ − x² + 11."
+answer = ["18*x^2 - 2*x"]
+explain = "18x² − 2x."
+
+[[item]]
+id = "math-power-t2"
+objective = "math-power"
+role = "test7"
+kind = "expr"
+prompt = "Найди производную f(x) = x^(3/2) при x > 0."
+answer = ["3*sqrt(x)/2"]
+domain = "positive"
+explain = "(3/2)·x^(1/2)."
+
+[[item]]
+id = "math-chain-d1"
+objective = "math-chain"
+role = "diag"
+kind = "expr"
+prompt = "Диагностика. Найди производную f(x) = (2x + 1)^3."
+answer = ["6*(2*x + 1)^2"]
+explain = "Внешняя 3u², внутренняя (2x+1)' = 2: 6(2x+1)²."
+
+[[item]]
+id = "math-chain-p1"
+objective = "math-chain"
+role = "practice"
+stage = "worked"
+kind = "expr"
+prompt = """Разобранный пример. f(x) = sin(x²).
+Шаг 1. Внешняя функция sin u, внутренняя u = x².
+Шаг 2. (sin u)' = cos u, u' = 2x.
+Шаг 3. f'(x) = cos(x²)·2x.
+Проверь себя: запиши f'(x)."""
+answer = ["2*x*cos(x^2)"]
+hint = "Ответ — шаг 3."
+explain = "Производная внешней в точке внутренней, умноженная на производную внутренней."
+
+[[item]]
+id = "math-chain-p2"
+objective = "math-chain"
+role = "practice"
+stage = "faded"
+kind = "expr"
+prompt = """Пример с пропуском. f(x) = exp(3x).
+Шаг 1 сделан: внешняя e^u, (e^u)' = e^u.
+Шаг 2 — твой: запиши f'(x), если u = 3x."""
+answer = ["3*exp(3*x)"]
+hint = "u' = 3."
+explain = "3e^(3x)."
+
+[[item]]
+id = "math-chain-p3"
+objective = "math-chain"
+role = "practice"
+stage = "solo"
+kind = "expr"
+prompt = "Самостоятельно: f(x) = log(x² + 1). Найди f'(x)."
+answer = ["2*x/(x^2 + 1)"]
+explain = "(ln u)' = u'/u: 2x/(x²+1)."
+
+[[item]]
+id = "math-chain-p4"
+objective = "math-chain"
+role = "practice"
+stage = "explain"
+kind = "explain"
+prompt = "Докажи коротко, что (sqrt(x))' = 1/(2·sqrt(x)) при x > 0, через x^(1/2) или через определение."
+answer = ["√x = x^(1/2); по правилу степени (1/2)·x^(−1/2) = 1/(2√x). Через определение: (√(x+h) − √x)/h = 1/(√(x+h) + √x) → 1/(2√x)."]
+rubric = "1) верная запись степени или разностного отношения; 2) корректный переход (правило или домножение на сопряжённое); 3) указано x > 0."
+explain = "Обе линии доказательства приводят к 1/(2√x); при x = 0 производной нет."
+
+[[item]]
+id = "math-chain-p5"
+objective = "math-chain"
+role = "practice"
+stage = "transfer"
+kind = "expr"
+prompt = "Перенос: f(x) = sqrt(x^2) при x > 0. Найди f'(x)."
+answer = ["1"]
+domain = "positive"
+explain = "При x > 0 √(x²) = x, производная 1. Без условия x > 0 было бы |x|."
+
+[[item]]
+id = "math-chain-t1"
+objective = "math-chain"
+role = "test7"
+kind = "expr"
+prompt = "Найди производную f(x) = cos(5x)."
+answer = ["-5*sin(5*x)"]
+explain = "−5 sin 5x."
+
+[[item]]
+id = "math-chain-t2"
+objective = "math-chain"
+role = "test7"
+kind = "expr"
+prompt = "Найди производную f(x) = (x^2 − 3)^4."
+answer = ["8*x*(x^2 - 3)^3"]
+explain = "4(x²−3)³·2x = 8x(x²−3)³."
