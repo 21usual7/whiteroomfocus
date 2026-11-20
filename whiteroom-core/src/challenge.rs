@@ -7,9 +7,27 @@ use crate::{Db, Res, e};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-const BUILD: Limits = Limits { mem_mb: 512, tasks: 64, secs: 30 };
+const BUILD: Limits = Limits {
+    mem_mb: 512,
+    tasks: 64,
+    secs: 30,
+};
 /// Флаги компилятора, которые может выбрать автор задачи (остальные могли бы, например, читать файлы через @file).
-const CFLAGS: &[&str] = &["-fno-stack-protector", "-fstack-protector-all", "-no-pie", "-pie", "-z", "execstack", "norelro", "relro", "now", "-O0", "-O1", "-O2", "-static"];
+const CFLAGS: &[&str] = &[
+    "-fno-stack-protector",
+    "-fstack-protector-all",
+    "-no-pie",
+    "-pie",
+    "-z",
+    "execstack",
+    "norelro",
+    "relro",
+    "now",
+    "-O0",
+    "-O1",
+    "-O2",
+    "-static",
+];
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Challenge {
@@ -54,7 +72,11 @@ pub struct Ready {
 }
 
 fn text(b: &[u8]) -> String {
-    String::from_utf8_lossy(b).trim().chars().take(2000).collect()
+    String::from_utf8_lossy(b)
+        .trim()
+        .chars()
+        .take(2000)
+        .collect()
 }
 
 impl Challenge {
@@ -62,7 +84,10 @@ impl Challenge {
         if self.hints.len() != 4 {
             return Err("нужно ровно 4 подсказки: идея, метод, первый шаг, решение".into());
         }
-        if !(1..=5).contains(&self.difficulty) || self.title.trim().is_empty() || self.statement.trim().is_empty() {
+        if !(1..=5).contains(&self.difficulty)
+            || self.title.trim().is_empty()
+            || self.statement.trim().is_empty()
+        {
             return Err("пустое название или условие, либо сложность не 1–5".into());
         }
         match self.kind.as_str() {
@@ -88,7 +113,13 @@ impl Challenge {
         }
         let job = Job::new()?;
         let flag = format!("WR{{{:016x}}}", rand::random::<u64>());
-        sandbox::put(&job, &[("chal.c", self.source.as_deref().unwrap().as_bytes()), ("exploit.py", self.exploit.as_deref().unwrap().as_bytes())])?;
+        sandbox::put(
+            &job,
+            &[
+                ("chal.c", self.source.as_deref().unwrap().as_bytes()),
+                ("exploit.py", self.exploit.as_deref().unwrap().as_bytes()),
+            ],
+        )?;
         std::fs::write(job.out().join("flag.txt"), format!("{flag}\n")).map_err(e)?;
         let mut argv = vec!["gcc", "-w", "-o", "/work/out/chal", "/work/src/chal.c"];
         argv.extend(self.cflags.iter().map(String::as_str));
@@ -97,16 +128,38 @@ impl Challenge {
             return Err(format!("не компилируется: {}", text(&c.stderr)));
         }
         // Без эксплойта флага быть не должно, иначе задача решается сама.
-        let plain = sandbox::run(&job, &["sh", "-c", "cd /work/out && exec ./chal"], b"hello\n", DEFAULT)?;
+        let plain = sandbox::run(
+            &job,
+            &["sh", "-c", "cd /work/out && exec ./chal"],
+            b"hello\n",
+            DEFAULT,
+        )?;
         if String::from_utf8_lossy(&plain.stdout).contains(&flag) {
             return Err("флаг выводится без эксплойта".into());
         }
-        let x = sandbox::run(&job, &["sh", "-c", "cd /work/out && PWNLIB_NOTERM=1 exec python3 /work/src/exploit.py"], b"", BUILD)?;
+        let x = sandbox::run(
+            &job,
+            &[
+                "sh",
+                "-c",
+                "cd /work/out && PWNLIB_NOTERM=1 exec python3 /work/src/exploit.py",
+            ],
+            b"",
+            BUILD,
+        )?;
         if !String::from_utf8_lossy(&x.stdout).contains(&flag) {
-            return Err(format!("эталонный эксплойт не получил флаг (код {}): {}", x.code, text(&x.stderr)));
+            return Err(format!(
+                "эталонный эксплойт не получил флаг (код {}): {}",
+                x.code,
+                text(&x.stderr)
+            ));
         }
         let binary = std::fs::read(job.out().join("chal")).map_err(e)?;
-        Ok(Ready { ch: self, binary: Some(binary), flag: Some(flag) })
+        Ok(Ready {
+            ch: self,
+            binary: Some(binary),
+            flag: Some(flag),
+        })
     }
 }
 
@@ -120,11 +173,19 @@ fn sympy_equal(a: &str, b: &str) -> Res<bool> {
         d = simplify(a - b)\n\
         print('eq' if d == 0 or (not d.free_symbols and abs(complex(N(d))) < 1e-9) else 'ne')\n";
     sandbox::put(&job, &[("eq.py", script.as_bytes())])?;
-    let o = sandbox::run(&job, &["python3", "/work/src/eq.py"], format!("{a}\n{b}\n").as_bytes(), BUILD)?;
+    let o = sandbox::run(
+        &job,
+        &["python3", "/work/src/eq.py"],
+        format!("{a}\n{b}\n").as_bytes(),
+        BUILD,
+    )?;
     match String::from_utf8_lossy(&o.stdout).trim() {
         "eq" => Ok(true),
         "ne" => Ok(false),
-        _ => Err(format!("не удалось разобрать ответ: {}", text(&o.stderr).lines().last().unwrap_or(""))),
+        _ => Err(format!(
+            "не удалось разобрать ответ: {}",
+            text(&o.stderr).lines().last().unwrap_or("")
+        )),
     }
 }
 
@@ -134,12 +195,28 @@ fn validate_math(ch: Challenge) -> Res<Ready> {
         return Err("ответ не разбирается SymPy".into());
     }
     let job = Job::new()?;
-    sandbox::put(&job, &[("verify.py", ch.verify.as_deref().unwrap().as_bytes())])?;
+    sandbox::put(
+        &job,
+        &[("verify.py", ch.verify.as_deref().unwrap().as_bytes())],
+    )?;
     let o = sandbox::run(&job, &["python3", "/work/src/verify.py"], b"", BUILD)?;
-    if String::from_utf8_lossy(&o.stdout).lines().last().map(str::trim) != Some("ok") {
-        return Err(format!("проверочный код не подтвердил ответ (код {}): {}", o.code, text(&o.stderr)));
+    if String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .last()
+        .map(str::trim)
+        != Some("ok")
+    {
+        return Err(format!(
+            "проверочный код не подтвердил ответ (код {}): {}",
+            o.code,
+            text(&o.stderr)
+        ));
     }
-    Ok(Ready { ch, binary: None, flag: None })
+    Ok(Ready {
+        ch,
+        binary: None,
+        flag: None,
+    })
 }
 
 pub struct Row {
@@ -148,9 +225,51 @@ pub struct Row {
     pub hints: i64,
     pub attempts: i64,
     pub solved: bool,
+    /// Самостоятельный результат: исход первой попытки, если до неё не открывали подсказок.
+    /// None — попытки не было, она была с помощью или уровень подсказки неизвестен (старые записи).
+    pub independent: Option<bool>,
+}
+
+/// Уровень подсказки на момент попытки (`challenge_attempt.hints`). NULL — попытка записана до миграции.
+pub(crate) fn migrate(c: &rusqlite::Connection) -> Res<()> {
+    let has: i64 = c
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('challenge_attempt') WHERE name='hints'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(e)?;
+    if has == 0 {
+        // Второй процесс мог добавить столбец между проверкой и ALTER.
+        if let Err(x) = c.execute_batch("ALTER TABLE challenge_attempt ADD COLUMN hints INT") {
+            if !x.to_string().contains("duplicate column") {
+                return Err(e(x));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Db {
+    /// Идёт самостоятельный недельный блок (открытый test_block): тьютор, подсказки и ключи закрыты.
+    pub fn self_test_active(&self) -> Res<bool> {
+        self.c
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM test_block WHERE closed_at IS NULL)",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(e)
+    }
+
+    /// Ошибка, если сейчас нельзя давать помощь: тьютор, подсказки, ключи, вопросы Claude.
+    pub fn help_allowed(&self) -> Res<()> {
+        if self.self_test_active()? {
+            return Err("Идёт самостоятельная проверка: тьютор, подсказки и ключи откроются после её завершения (whiteroom test).".into());
+        }
+        Ok(())
+    }
+
     pub fn add_challenge(&self, r: &Ready, now: i64) -> Res<i64> {
         self.c
             .execute(
@@ -164,35 +283,50 @@ impl Db {
     pub fn challenge(&self, id: i64) -> Res<Row> {
         self.c
             .query_row(
-                "SELECT data, hints, solved_at IS NOT NULL, (SELECT count(*) FROM challenge_attempt WHERE challenge_id=c.id)
+                "SELECT data, hints, solved_at IS NOT NULL, (SELECT count(*) FROM challenge_attempt WHERE challenge_id=c.id),
+                   (SELECT iif(hints=0, correct, NULL) FROM challenge_attempt WHERE challenge_id=c.id ORDER BY id LIMIT 1)
                  FROM challenge c WHERE id=?",
                 [id],
-                |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()
             .map_err(e)?
             .ok_or(format!("челленджа {id} нет"))
-            .and_then(|(d, hints, solved, attempts)| {
-                Ok(Row { id, ch: serde_json::from_str(&d).map_err(e)?, hints, attempts, solved })
+            .and_then(|(d, hints, solved, attempts, independent)| {
+                Ok(Row { id, ch: serde_json::from_str(&d).map_err(e)?, hints, attempts, solved, independent })
             })
     }
 
     pub fn challenges(&self) -> Res<Vec<Row>> {
-        let mut st = self.c.prepare("SELECT id FROM challenge ORDER BY id").map_err(e)?;
-        let ids: Vec<i64> = st.query_map([], |r| r.get(0)).map_err(e)?.collect::<Result<_, _>>().map_err(e)?;
+        let mut st = self
+            .c
+            .prepare("SELECT id FROM challenge ORDER BY id")
+            .map_err(e)?;
+        let ids: Vec<i64> = st
+            .query_map([], |r| r.get(0))
+            .map_err(e)?
+            .collect::<Result<_, _>>()
+            .map_err(e)?;
         ids.into_iter().map(|id| self.challenge(id)).collect()
     }
 
-    /// Следующая подсказка. Полное решение (4-я) — только после хотя бы одной попытки.
+    /// Следующая подсказка — только по запросу пользователя; попытки после неё отмечаются как с помощью.
+    /// Полное решение (4-я) — только после хотя бы одной попытки.
     pub fn next_hint(&self, id: i64) -> Res<(i64, String)> {
+        self.help_allowed()?;
         let r = self.challenge(id)?;
         if r.hints >= 4 {
             return Ok((4, r.ch.hints[3].clone()));
         }
         if r.hints == 3 && r.attempts == 0 && !r.solved {
-            return Err("Полное решение откроется после твоей попытки: whiteroom solve <id> <ответ>.".into());
+            return Err(
+                "Полное решение откроется после твоей попытки: whiteroom solve <id> <ответ>."
+                    .into(),
+            );
         }
-        self.c.execute("UPDATE challenge SET hints=hints+1 WHERE id=?", [id]).map_err(e)?;
+        self.c
+            .execute("UPDATE challenge SET hints=hints+1 WHERE id=?", [id])
+            .map_err(e)?;
         Ok((r.hints + 1, r.ch.hints[r.hints as usize].clone()))
     }
 
@@ -200,29 +334,47 @@ impl Db {
         let r = self.challenge(id)?;
         let answer = answer.trim();
         let ok = if r.ch.kind == "pwn" {
-            let flag: Option<String> = self.c.query_row("SELECT flag FROM challenge WHERE id=?", [id], |r| r.get(0)).map_err(e)?;
+            let flag: Option<String> = self
+                .c
+                .query_row("SELECT flag FROM challenge WHERE id=?", [id], |r| r.get(0))
+                .map_err(e)?;
             flag.as_deref() == Some(answer)
         } else {
             sympy_equal(r.ch.answer.as_deref().unwrap_or("0"), answer)?
         };
         self.c
-            .execute("INSERT INTO challenge_attempt(challenge_id, ts, answer, correct) VALUES (?,?,?,?)", params![id, now, answer, ok])
+            .execute(
+                "INSERT INTO challenge_attempt(challenge_id, ts, answer, correct, hints) VALUES (?,?,?,?,?)",
+                params![id, now, answer, ok, r.hints],
+            )
             .map_err(e)?;
         if ok {
-            self.c.execute("UPDATE challenge SET solved_at=coalesce(solved_at, ?) WHERE id=?", params![now, id]).map_err(e)?;
+            self.c
+                .execute(
+                    "UPDATE challenge SET solved_at=coalesce(solved_at, ?) WHERE id=?",
+                    params![now, id],
+                )
+                .map_err(e)?;
         }
         Ok(ok)
     }
 
     /// Задание pwn для запуска: бинарь (исполняемый) и флаг в out/.
     pub fn pwn_job(&self, id: i64) -> Res<Job> {
-        let (bin, flag): (Option<Vec<u8>>, Option<String>) =
-            self.c.query_row("SELECT binary, flag FROM challenge WHERE id=?", [id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
-        let (Some(bin), Some(flag)) = (bin, flag) else { return Err("это не pwn-челлендж".into()) };
+        let (bin, flag): (Option<Vec<u8>>, Option<String>) = self
+            .c
+            .query_row("SELECT binary, flag FROM challenge WHERE id=?", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .map_err(e)?;
+        let (Some(bin), Some(flag)) = (bin, flag) else {
+            return Err("это не pwn-челлендж".into());
+        };
         let job = Job::new()?;
         let chal = job.out().join("chal");
         std::fs::write(&chal, bin).map_err(e)?;
-        std::fs::set_permissions(&chal, std::os::unix::fs::PermissionsExt::from_mode(0o755)).map_err(e)?;
+        std::fs::set_permissions(&chal, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .map_err(e)?;
         std::fs::write(job.out().join("flag.txt"), format!("{flag}\n")).map_err(e)?;
         Ok(job)
     }
@@ -233,12 +385,19 @@ impl Db {
         std::fs::create_dir_all(dir).map_err(e)?;
         let mut readme = format!("{}\n\n{}\n", r.ch.title, r.ch.statement);
         if r.ch.kind == "pwn" {
-            let bin: Vec<u8> = self.c.query_row("SELECT binary FROM challenge WHERE id=?", [id], |r| r.get(0)).map_err(e)?;
+            let bin: Vec<u8> = self
+                .c
+                .query_row("SELECT binary FROM challenge WHERE id=?", [id], |r| {
+                    r.get(0)
+                })
+                .map_err(e)?;
             let chal = dir.join("chal");
             std::fs::write(&chal, bin).map_err(e)?;
-            std::fs::set_permissions(&chal, std::os::unix::fs::PermissionsExt::from_mode(0o644)).map_err(e)?;
+            std::fs::set_permissions(&chal, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+                .map_err(e)?;
             if r.ch.give_source {
-                std::fs::write(dir.join("chal.c"), r.ch.source.as_deref().unwrap_or("")).map_err(e)?;
+                std::fs::write(dir.join("chal.c"), r.ch.source.as_deref().unwrap_or(""))
+                    .map_err(e)?;
             }
             readme += &format!(
                 "\nБинарь написан ИИ: не запускай его напрямую, только через песочницу.\n\
@@ -246,7 +405,9 @@ impl Db {
                  pwntools: p = process(['whiteroom', 'pwn', 'run', '{id}'])\nСдать флаг: whiteroom solve {id} <флаг>\n"
             );
         } else {
-            readme += &format!("\nОтвет (выражение, например 3*sqrt(2)/4): whiteroom solve {id} <ответ>\n");
+            readme += &format!(
+                "\nОтвет (выражение, например 3*sqrt(2)/4): whiteroom solve {id} <ответ>\n"
+            );
         }
         std::fs::write(dir.join("README.txt"), readme).map_err(e)
     }
@@ -265,7 +426,8 @@ hints — ровно 4 уровня: 1) идея, куда смотреть, б�
 4) полное решение с объяснением.\n\
 Задача будет автоматически проверена в песочнице. Если проверка не пройдёт, тебе пришлют ошибку — исправь задачу.";
     if kind == "pwn" {
-        format!("{common}\n\nТип: pwn (x86-64 Linux, учебная задача для своей машины, без сети).\n\
+        format!(
+            "{common}\n\nТип: pwn (x86-64 Linux, учебная задача для своей машины, без сети).\n\
 - source: одна программа на C. setvbuf(stdout, NULL, _IONBF, 0) в начале main. Ввод — read/fgets/scanf (gets нет в glibc). \
 Флаг читается из файла flag.txt в текущей папке только на пути, куда попадает правильный эксплойт. \
 Никакой сети, fork, exec, работы с другими файлами.\n\
@@ -274,14 +436,18 @@ hints — ровно 4 уровня: 1) идея, куда смотреть, б�
 Он должен реально получить флаг против бинаря, собранного gcc с этими cflags.\n\
 - statement: что делает программа и цель («получи флаг»), не называя уязвимость.\n\
 - give_source: true для начального уровня, false если тренируется реверс.\n\
-Пример формата:\n{PWN_EXAMPLE}", CFLAGS)
+Пример формата:\n{PWN_EXAMPLE}",
+            CFLAGS
+        )
     } else {
-        format!("{common}\n\nТип: math. Задача с однозначным ответом-выражением, требующая идеи, а не вычислений.\n\
+        format!(
+            "{common}\n\nТип: math. Задача с однозначным ответом-выражением, требующая идеи, а не вычислений.\n\
 - answer: ответ в синтаксисе SymPy (sqrt(2)/2, exp(1/E), pi/4, Rational(3, 8)).\n\
 - verify: независимая проверка на Python (можно SymPy): символьно и численно (перебором, частичными суммами), \
 assert при ошибке, в конце print('ok').\n\
 - statement: обычный текст с юникодом (√, π, Σ, ∫), без LaTeX.\n\
-Пример формата:\n{MATH_EXAMPLE}")
+Пример формата:\n{MATH_EXAMPLE}"
+        )
     }
 }
 
@@ -295,10 +461,16 @@ fn schema(kind: &str) -> serde_json::Value {
         "statement": s("условие"),
         "hints": {"type": "array", "items": {"type": "string"}}
     });
-    let extra: &[&str] = if kind == "pwn" { &["source", "cflags", "exploit", "give_source"] } else { &["answer", "verify"] };
+    let extra: &[&str] = if kind == "pwn" {
+        &["source", "cflags", "exploit", "give_source"]
+    } else {
+        &["answer", "verify"]
+    };
     for k in extra {
         props[*k] = match *k {
-            "cflags" => serde_json::json!({"type": "array", "items": {"type": "string", "enum": CFLAGS}}),
+            "cflags" => {
+                serde_json::json!({"type": "array", "items": {"type": "string", "enum": CFLAGS}})
+            }
             "give_source" => serde_json::json!({"type": "boolean"}),
             _ => s(k),
         };
@@ -309,7 +481,12 @@ fn schema(kind: &str) -> serde_json::Value {
 }
 
 /// Запрос к Claude. `fix` — ошибка проверки прошлой попытки (тогда в истории есть прошлый ответ).
-pub fn ai_request(activity: &str, kind: &str, done: &[String], prev: Option<(&str, &str)>) -> serde_json::Value {
+pub fn ai_request(
+    activity: &str,
+    kind: &str,
+    done: &[String],
+    prev: Option<(&str, &str)>,
+) -> serde_json::Value {
     let mut user = format!("<activity>\n{activity}</activity>");
     if !done.is_empty() {
         user += &format!("\n\nУже решал (не повторяйся): {}", done.join("; "));

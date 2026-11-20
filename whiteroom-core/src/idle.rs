@@ -3,7 +3,9 @@
 use crate::Res;
 use wayland_client::protocol::{wl_registry, wl_seat::WlSeat};
 use wayland_client::{Connection, Dispatch, QueueHandle};
-use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::{self, ExtIdleNotificationV1};
+use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notification_v1::{
+    self, ExtIdleNotificationV1,
+};
 use wayland_protocols::ext::idle_notify::v1::client::ext_idle_notifier_v1::ExtIdleNotifierV1;
 
 #[derive(Default)]
@@ -14,8 +16,20 @@ struct State {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
-    fn event(s: &mut Self, reg: &wl_registry::WlRegistry, ev: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = ev {
+    fn event(
+        s: &mut Self,
+        reg: &wl_registry::WlRegistry,
+        ev: wl_registry::Event,
+        _: &(),
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+    ) {
+        if let wl_registry::Event::Global {
+            name,
+            interface,
+            version,
+        } = ev
+        {
             match interface.as_str() {
                 "wl_seat" if s.seat.is_none() => s.seat = Some(reg.bind(name, 1, qh, ())),
                 "ext_idle_notifier_v1" => s.notifier = Some(reg.bind(name, version.min(2), qh, ())),
@@ -26,15 +40,38 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
 }
 
 impl Dispatch<WlSeat, ()> for State {
-    fn event(_: &mut Self, _: &WlSeat, _: wayland_client::protocol::wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &WlSeat,
+        _: wayland_client::protocol::wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<ExtIdleNotifierV1, ()> for State {
-    fn event(_: &mut Self, _: &ExtIdleNotifierV1, _: <ExtIdleNotifierV1 as wayland_client::Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+    fn event(
+        _: &mut Self,
+        _: &ExtIdleNotifierV1,
+        _: <ExtIdleNotifierV1 as wayland_client::Proxy>::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<ExtIdleNotificationV1, ()> for State {
-    fn event(s: &mut Self, _: &ExtIdleNotificationV1, ev: ext_idle_notification_v1::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+    fn event(
+        s: &mut Self,
+        _: &ExtIdleNotificationV1,
+        ev: ext_idle_notification_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
         match ev {
             ext_idle_notification_v1::Event::Idled => s.idle = Some(true),
             ext_idle_notification_v1::Event::Resumed => s.idle = Some(false),

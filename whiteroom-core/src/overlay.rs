@@ -23,9 +23,9 @@ pub fn open(path: &str, cli: &Path) -> Res<()> {
     if env::var_os("WAYLAND_DISPLAY").is_none() {
         return Err("Всплывающий тьютор доступен в Wayland.".into());
     }
-    let session = Db::open(path)?
-        .study_active()?
-        .map(|(id, started, _)| (id, started));
+    let db = Db::open(path)?;
+    db.help_allowed()?;
+    let session = db.study_active()?.map(|(id, started, _)| (id, started));
     let config = install(session.map(|(id, _)| id))?;
     ensure_window(cli, &config, session, "open")
 }
@@ -133,10 +133,76 @@ fn launch(cli: &Path, path: &Path, session: Option<(i64, i64)>) -> Res<()> {
 
 pub fn watch(path: &str, session_id: Option<i64>) -> Res<()> {
     let db = Db::open(path)?;
+    let mut warned = std::collections::HashMap::new();
+    let mut tick = 0u32;
+    // «Не беспокоить» Omarchy: запоминаем прежнее состояние и возвращаем его после сессии.
+    let muted = session_id.is_some_and(|id| db.study_muted(id).unwrap_or(false));
+    let was_dnd = muted && dnd("isDnd").as_deref() == Some("on");
+    if muted && !was_dnd {
+        dnd("setDnd on");
+    }
     while db.study_active()?.map(|session| session.0) == session_id {
+        if session_id.is_some() && tick % 7 == 0 {
+            guard_apps(&db, &mut warned);
+        }
+        tick = tick.wrapping_add(1);
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
+    if muted && !was_dnd {
+        dnd("setDnd off");
+    }
     Ok(())
+}
+
+fn dnd(command: &str) -> Option<String> {
+    let out = Command::new("omarchy-shell")
+        .arg("notifications")
+        .args(command.split(' '))
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+}
+
+const APP_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Окна из списка блокировки: предупреждение, через 10 секунд закрываем окно и завершаем процесс.
+/// shortcut: приложение, свёрнутое в трей без окна, не видно; когда понадобится — искать по имени процесса.
+fn guard_apps(db: &Db, warned: &mut std::collections::HashMap<i64, std::time::Instant>) {
+    let Ok(apps) = db.blocked_apps() else { return };
+    let clients = Command::new("hyprctl")
+        .args(["clients", "-j"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .and_then(|out| serde_json::from_slice::<Value>(&out.stdout).ok());
+    let mut seen = Vec::new();
+    for client in clients.iter().filter_map(Value::as_array).flatten() {
+        let class = client["class"].as_str().unwrap_or_default().to_lowercase();
+        let (Some(pid), true) = (
+            client["pid"].as_i64().filter(|pid| *pid > 1),
+            apps.iter().any(|app| class.contains(app.as_str())),
+        ) else {
+            continue;
+        };
+        seen.push(pid);
+        let since = *warned.entry(pid).or_insert_with(|| {
+            let _ = Command::new("notify-send")
+                .args(["-u", "critical", "-t", "10000", "WHITE ROOM"])
+                .arg(format!("«{class}» закроется через 10 секунд: идёт учебная сессия."))
+                .status();
+            std::time::Instant::now()
+        });
+        if since.elapsed() >= APP_GRACE {
+            let _ = Command::new("hyprctl")
+                .args(["dispatch", "closewindow"])
+                .arg(format!("address:{}", client["address"].as_str().unwrap_or_default()))
+                .stdout(Stdio::null())
+                .status();
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        }
+    }
+    warned.retain(|pid, _| seen.contains(pid));
 }
 
 #[derive(Deserialize)]

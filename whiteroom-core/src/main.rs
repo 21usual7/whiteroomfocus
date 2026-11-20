@@ -4,7 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use whiteroom_core::ai_context::{self, MATH_BYTES, MATH_OUTPUT, REVIEW_BYTES, REVIEW_OUTPUT};
 use whiteroom_core::challenge::Challenge;
 use whiteroom_core::sandbox::{DEFAULT, Limits};
-use whiteroom_core::{Db, Module, Res, ai_call, ai_parse, ai_request, read_native, run_review, run_session, run_test, write_native};
+use whiteroom_core::{
+    Db, Module, Res, ai_call, ai_request, read_native, run_session, run_test, write_native,
+};
 
 const USAGE: &str = "whiteroom — пилот WHITE ROOM
 
@@ -13,6 +15,8 @@ const USAGE: &str = "whiteroom — пилот WHITE ROOM
   done <цель> <минут>       цель изучена; минут — сколько учил её вне WHITE ROOM
   test                      отложенные проверки, срок которых наступил
   status                    цели, группы, сроки проверок
+  report                    отчёт пилота: первые ответы в окне, пропуски, задержка по группам
+  pilot-export              обезличенная выгрузка для анализа (JSON, без ключей и журналов)
   export                    все данные в JSON (stdout)
   track                     записывать активное окно Hyprland (работает до Ctrl+C)
   log [часов]               что ты делал за последние часы (по умолчанию 4)
@@ -20,9 +24,13 @@ const USAGE: &str = "whiteroom — пилот WHITE ROOM
 Сессия:
   start [--windows] [--browser] [тема]   начать с выбранными источниками
   stop                      закончить и показать сводку
-  allow <тема>              сайты, доступные во время сессии
-  allow add|rm <тема> <домен>   изменить список для темы
-  review [часов] [--attach файл]    вопросы по последней сессии и выбранным материалам
+  block                     сайты, заблокированные во время сессии
+  block add|rm <домен>      изменить список (остальные сайты открыты)
+  app                       приложения, которые закрываются во время сессии
+  app add|rm <имя>          изменить список (имя — часть класса окна, например discord)
+  review [часов] [--attach файл]    вопросы по последней завершённой сессии и выбранным материалам
+  drafts                    вопросы Claude на просмотре: добавить, исправить ключ или отклонить
+  dispute <вопрос> [что не так]     ошибка в добавленном вопросе: убрать из повторений и оценки
   browser-setup             связать whiteroom с расширением в Chromium
   tutor-overlay             открыть чат тьютора поверх окон Wayland
 
@@ -45,7 +53,9 @@ fn db_path() -> Res<String> {
     }
     let dir = std::env::var("XDG_DATA_HOME")
         .map(Into::into)
-        .or_else(|_| std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))
+        .or_else(|_| {
+            std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
+        })
         .map_err(|_| "не задан HOME")?
         .join("whiteroom");
     std::fs::create_dir_all(&dir).map_err(|x| x.to_string())?;
@@ -53,7 +63,9 @@ fn db_path() -> Res<String> {
 }
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// Активное окно в формате события socket2: `activewindow>>class,title`.
@@ -64,7 +76,11 @@ fn active_window(dir: &std::path::Path) -> Res<String> {
     q.read_to_string(&mut js).map_err(|x| x.to_string())?;
     let w: serde_json::Value = serde_json::from_str(&js).unwrap_or_default();
     let field = |k: &str| w[k].as_str().unwrap_or("").to_string();
-    Ok(format!("activewindow>>{},{}", field("class"), field("title")))
+    Ok(format!(
+        "activewindow>>{},{}",
+        field("class"),
+        field("title")
+    ))
 }
 
 /// Слушает сокет событий Hyprland и пишет отрезки фокуса в базу. Всё хранится только локально.
@@ -76,9 +92,14 @@ fn track(path: &str, requested: Option<i64>) -> Res<()> {
     if requested.is_some_and(|x| x != id) {
         return Err("Сессия уже завершена.".into());
     }
-    let dir = std::path::PathBuf::from(std::env::var("XDG_RUNTIME_DIR").map_err(|_| "нет XDG_RUNTIME_DIR")?)
-        .join("hypr")
-        .join(std::env::var("HYPRLAND_INSTANCE_SIGNATURE").map_err(|_| "Hyprland не запущен (нет HYPRLAND_INSTANCE_SIGNATURE)")?);
+    let dir = std::path::PathBuf::from(
+        std::env::var("XDG_RUNTIME_DIR").map_err(|_| "нет XDG_RUNTIME_DIR")?,
+    )
+    .join("hypr")
+    .join(
+        std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
+            .map_err(|_| "Hyprland не запущен (нет HYPRLAND_INSTANCE_SIGNATURE)")?,
+    );
     // Текущее окно: события придут только при следующем переключении.
     db.focus_event(id, &active_window(&dir)?, now())?;
     let (idle_path, idle_dir) = (path.to_string(), dir.clone());
@@ -259,8 +280,8 @@ fn start(topic: &str, now: i64, windows: bool, browser: bool) -> Res<()> {
         eprintln!("{error}");
     }
     println!(
-        "В Chromium разрешены: {}",
-        db.allowed_sites(topic)?.join(", ")
+        "В Chromium заблокированы: {}",
+        db.blocked_sites()?.join(", ")
     );
     println!("Закончить: whiteroom stop");
     Ok(())
@@ -275,13 +296,21 @@ fn stop(now: i64) -> Res<()> {
         (now - started) / 60,
         db.focus_range(started, now, Some(id))?
     );
-    println!("Дальше: whiteroom review — вопросы по сессии, whiteroom practice pwn|math — задача по теме.");
+    println!(
+        "Дальше: whiteroom review — вопросы по сессии, whiteroom practice pwn|math — задача по теме."
+    );
     Ok(())
 }
 
 fn review(hours: Option<i64>, files: &[&str], now: i64) -> Res<()> {
     let db = Db::open(&db_path()?)?;
-    let sources = db.review_sources(hours, now)?;
+    db.help_allowed()?;
+    let (study, sources) = match hours {
+        None => db
+            .finished_session_sources(None)
+            .map(|(id, sources)| (Some(id), sources))?,
+        Some(_) => (None, db.review_sources(hours, now)?),
+    };
     let attachments = ai_context::read_attachments(files)?;
     let request = ai_context::prepare(
         &sources,
@@ -291,18 +320,16 @@ fn review(hours: Option<i64>, files: &[&str], now: i64) -> Res<()> {
         ai_request,
     )?;
     println!("Составляю вопросы…");
-    let Some(response) = confirmed_call(&display_context(request))? else {
+    let body = display_context(request);
+    let Some(response) = confirmed_call(&body)? else {
         return Ok(());
     };
-    let (summary, items) = ai_parse(&response, now)?;
-    run_review(
-        &db,
-        &mut stdin().lock(),
-        &mut stdout(),
-        now,
-        &summary,
-        &items,
-    )
+    let (summary, count) = db.stage_review(study, &body, &response, now)?;
+    println!("\n{summary}");
+    if count > 0 {
+        ai_context::run_drafts(&db, &mut stdin().lock(), &mut stdout(), now)?;
+    }
+    Ok(())
 }
 
 const HOST: &str = "com.whiteroom.host";
@@ -328,7 +355,9 @@ fn native() -> Res<()> {
                 }
             }
             _ => {
-                let grant = site_grant.take().filter(|(id, _)| Some(*id) == msg["capture"].as_i64());
+                let grant = site_grant
+                    .take()
+                    .filter(|(id, _)| Some(*id) == msg["capture"].as_i64());
                 db.page_event(&msg, grant.as_ref().map(|(_, s)| s.as_str()), now())
             }
         };
@@ -378,7 +407,9 @@ fn browser_setup() -> Res<()> {
 
 fn challenge_dir(id: i64) -> Res<std::path::PathBuf> {
     let home = std::env::var("HOME").map_err(|_| "не задан HOME")?;
-    Ok(std::path::PathBuf::from(home).join("whiteroom/challenges").join(id.to_string()))
+    Ok(std::path::PathBuf::from(home)
+        .join("whiteroom/challenges")
+        .join(id.to_string()))
 }
 
 fn id(s: &str) -> Res<i64> {
@@ -387,8 +418,15 @@ fn id(s: &str) -> Res<i64> {
 
 fn pwn(id: i64, gdb: bool) -> Res<()> {
     let job = Db::open(&db_path()?)?.pwn_job(id)?;
-    let cmd = if gdb { "cd /work/out && exec gdb -q ./chal" } else { "cd /work/out && exec ./chal" };
-    let lim = Limits { secs: if gdb { 3600 } else { 600 }, ..DEFAULT };
+    let cmd = if gdb {
+        "cd /work/out && exec gdb -q ./chal"
+    } else {
+        "cd /work/out && exec ./chal"
+    };
+    let lim = Limits {
+        secs: if gdb { 3600 } else { 600 },
+        ..DEFAULT
+    };
     let code = whiteroom_core::sandbox::run_interactive(&job, &["sh", "-c", cmd], lim)?;
     std::process::exit(code);
 }
@@ -397,7 +435,9 @@ fn run() -> Res<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let now = now();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
-    if a.first().is_some_and(|x| x.starts_with("chrome-extension://")) {
+    if a.first()
+        .is_some_and(|x| x.starts_with("chrome-extension://"))
+    {
         return native();
     }
     let db = || Db::open(&db_path()?);
@@ -407,23 +447,44 @@ fn run() -> Res<()> {
             let m = Module::parse(&src)?;
             println!("Модуль «{}»: {} вопросов.", m.title, m.item.len());
             for (id, arm) in db()?.load(&m, now)? {
-                println!("  {id:<10} → {}", if arm == "wr" { "WHITE ROOM" } else { "учишь сам" });
+                println!(
+                    "  {id:<10} → {}",
+                    if arm == "wr" {
+                        "WHITE ROOM"
+                    } else {
+                        "учишь сам"
+                    }
+                );
             }
             println!("Цели «учишь сам» изучай своим обычным способом, по тем же темам.");
         }
         ["session"] => run_session(&db()?, &mut stdin().lock(), &mut stdout(), now, 8)?,
-        ["session", n] => run_session(&db()?, &mut stdin().lock(), &mut stdout(), now, n.parse().map_err(|_| USAGE)?)?,
+        ["session", n] => run_session(
+            &db()?,
+            &mut stdin().lock(),
+            &mut stdout(),
+            now,
+            n.parse().map_err(|_| USAGE)?,
+        )?,
         ["done", obj, min] => {
             db()?.done(obj, min.parse().map_err(|_| "минут — целое число")?, now)?;
             println!("Отмечено. Проверка по «{obj}» откроется через 7 дней.");
         }
         ["test"] => run_test(&db()?, &mut stdin().lock(), &mut stdout(), now)?,
         ["status"] => print!("{}", db()?.status(now)?),
-        ["export"] => println!("{}", serde_json::to_string_pretty(&db()?.export()?).map_err(|x| x.to_string())?),
+        ["report"] => print!("{}", db()?.pilot_text(now)?),
+        ["pilot-export"] => println!("{}", db()?.pilot_export(now)?),
+        ["export"] => println!(
+            "{}",
+            serde_json::to_string_pretty(&db()?.export()?).map_err(|x| x.to_string())?
+        ),
         ["track"] => track(&db_path()?, None)?,
         ["track", session] => track(&db_path()?, Some(id(session)?))?,
         ["log"] => print!("{}", db()?.focus_log(now - 4 * 3600)?),
-        ["log", h] => print!("{}", db()?.focus_log(now - h.parse::<i64>().map_err(|_| USAGE)? * 3600)?),
+        ["log", h] => print!(
+            "{}",
+            db()?.focus_log(now - h.parse::<i64>().map_err(|_| USAGE)? * 3600)?
+        ),
         ["browser-setup"] => browser_setup()?,
         ["challenge", "add", path] => {
             let src = std::fs::read_to_string(path).map_err(|x| format!("{path}: {x}"))?;
@@ -431,24 +492,49 @@ fn run() -> Res<()> {
             println!("Проверяю в песочнице: компиляция и эталонное решение…");
             let ready = ch.validate()?;
             let id = db()?.add_challenge(&ready, now)?;
-            println!("Добавлен челлендж {id}: {}. Дальше: whiteroom show {id}", ready.ch.title);
+            println!(
+                "Добавлен челлендж {id}: {}. Дальше: whiteroom show {id}",
+                ready.ch.title
+            );
         }
         ["challenges"] => {
             for r in db()?.challenges()? {
-                let st = if r.solved { "решён" } else if r.attempts > 0 { "в работе" } else { "новый" };
-                println!("{:>3}  [{}] {}  ·  {}  ·  сложность {}/5  ·  {st}, подсказок {}", r.id, r.ch.kind, r.ch.title, r.ch.topic, r.ch.difficulty, r.hints);
+                let st = if r.solved {
+                    "решён"
+                } else if r.attempts > 0 {
+                    "в работе"
+                } else {
+                    "новый"
+                };
+                println!(
+                    "{:>3}  [{}] {}  ·  {}  ·  сложность {}/5  ·  {st}, подсказок {}",
+                    r.id, r.ch.kind, r.ch.title, r.ch.topic, r.ch.difficulty, r.hints
+                );
             }
         }
         ["show", n] => {
             let (n, db) = (id(n)?, db()?);
             let r = db.challenge(n)?;
-            println!("{}  ({}, сложность {}/5)\n\n{}\n", r.ch.title, r.ch.topic, r.ch.difficulty, r.ch.statement);
+            println!(
+                "{}  ({}, сложность {}/5)\n\n{}\n",
+                r.ch.title, r.ch.topic, r.ch.difficulty, r.ch.statement
+            );
             let dir = challenge_dir(n)?;
             db.export_files(n, &dir)?;
             if r.ch.kind == "pwn" {
-                println!("Файлы для анализа: {}\nЗапуск — только через песочницу: whiteroom pwn run {n}  ·  отладка: whiteroom pwn gdb {n}", dir.display());
+                println!(
+                    "Файлы для анализа: {}\nЗапуск — только через песочницу: whiteroom pwn run {n}  ·  отладка: whiteroom pwn gdb {n}",
+                    dir.display()
+                );
             }
-            println!("Сдать: whiteroom solve {n} <{}>  ·  подсказка: whiteroom hint {n}", if r.ch.kind == "pwn" { "флаг" } else { "ответ" });
+            println!(
+                "Сдать: whiteroom solve {n} <{}>  ·  подсказка: whiteroom hint {n}",
+                if r.ch.kind == "pwn" {
+                    "флаг"
+                } else {
+                    "ответ"
+                }
+            );
         }
         ["hint", n] => {
             let (lvl, h) = db()?.next_hint(id(n)?)?;
@@ -457,7 +543,14 @@ fn run() -> Res<()> {
         }
         ["solve", n, rest @ ..] if !rest.is_empty() => {
             let ok = db()?.solve(id(n)?, &rest.join(" "), now)?;
-            println!("{}", if ok { "✓ Решено." } else { "✗ Неверно. Подсказка: whiteroom hint <id>" });
+            println!(
+                "{}",
+                if ok {
+                    "✓ Решено."
+                } else {
+                    "✗ Неверно. Подсказка: whiteroom hint <id>"
+                }
+            );
         }
         ["practice", "math", rest @ ..] => {
             let (hours, files) = context_options(rest)?;
@@ -467,24 +560,50 @@ fn run() -> Res<()> {
         ["practice", "pwn", h] => practice("pwn", Some(h.parse().map_err(|_| USAGE)?), &[], now)?,
         ["pwn", "run", n] => pwn(id(n)?, false)?,
         ["pwn", "gdb", n] => pwn(id(n)?, true)?,
+        ["drafts"] => ai_context::run_drafts(&db()?, &mut stdin().lock(), &mut stdout(), now)?,
+        ["dispute", item, note @ ..] => {
+            db()?.ai_item_dispute(item, &note.join(" "), now)?;
+            println!("Вопрос {item} убран из повторений и оценки; попытки сохранены.");
+        }
         ["review", rest @ ..] => {
             let (hours, files) = context_options(rest)?;
             review(hours, &files, now)?;
         }
         ["start", args @ ..] => {
-            let topic = args.iter().copied().filter(|s| !matches!(*s,"--windows"|"--browser")).collect::<Vec<_>>().join(" ");
-            start(if topic.is_empty() { "без темы" } else { &topic }, now, args.contains(&"--windows"), args.contains(&"--browser"))?;
+            let topic = args
+                .iter()
+                .copied()
+                .filter(|s| !matches!(*s, "--windows" | "--browser"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            start(
+                if topic.is_empty() {
+                    "без темы"
+                } else {
+                    &topic
+                },
+                now,
+                args.contains(&"--windows"),
+                args.contains(&"--browser"),
+            )?;
         }
         ["stop"] => stop(now)?,
-        ["allow", "add", topic, domain] => db()?.site_allow(topic, domain)?,
-        ["allow", "rm", topic, domain] => db()?.site_remove(topic, domain)?,
-        ["allow", topic] => println!("{}", db()?.allowed_sites(topic)?.join("\n")),
+        ["block", "add", domain] => db()?.site_block(domain)?,
+        ["block", "rm", domain] => db()?.site_unblock(domain)?,
+        ["block"] => println!("{}", db()?.blocked_sites()?.join("\n")),
+        ["app", "add", name] => db()?.app_block(name)?,
+        ["app", "rm", name] => db()?.app_unblock(name)?,
+        ["app"] => println!("{}", db()?.blocked_apps()?.join("\n")),
         ["tutor-overlay"] => {
             let cli = std::env::current_exe().map_err(|err| err.to_string())?;
             whiteroom_core::overlay::open(&db_path()?, &cli)?;
         }
         ["timer-watch", session] | ["tutor-stdio", session] => {
-            let session = if *session == "idle" { None } else { Some(id(session)?) };
+            let session = if *session == "idle" {
+                None
+            } else {
+                Some(id(session)?)
+            };
             let path = db_path()?;
             if a[0] == "timer-watch" {
                 whiteroom_core::overlay::watch(&path, session)?;
@@ -549,7 +668,10 @@ mod consent_tests {
                 .unwrap()
                 .strip_suffix("\nОтправить? [y/N] ")
                 .unwrap();
-            assert_eq!(sent, [serde_json::from_str::<serde_json::Value>(preview).unwrap()]);
+            assert_eq!(
+                sent,
+                [serde_json::from_str::<serde_json::Value>(preview).unwrap()]
+            );
             for decline in ["", "\n", "n\n"] {
                 assert!(
                     confirm_request(&body, &mut decline.as_bytes(), &mut vec![], |_| panic!(

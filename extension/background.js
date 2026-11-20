@@ -18,15 +18,15 @@ function refresh() {
       capture = next;
       chrome.storage.session.set({ hostOk: !!r.ok, hostError: r.error || "", session: !!r.session, capture });
       if (r.ok && r.request === pendingState && typeof r.session === 'boolean') {
-        blockingHostConfirmed = Array.isArray(r.allowed) && (!r.session || r.allowed.length > 0);
+        blockingHostConfirmed = Array.isArray(r.blocked);
         if (blockingHostConfirmed) {
           enqueueBlocking(async () => {
             if (connection === port && r.request === pendingState) {
-              await applyPolicy(r.session ? r.allowed : null);
+              await applyPolicy(r.session ? r.blocked : null);
             }
           }).catch(() => {});
         } else {
-          blockingError = 'Обнови локальный процесс WHITE ROOM для списков разрешённых сайтов.';
+          blockingError = 'Обнови локальный процесс WHITE ROOM для списка заблокированных сайтов.';
         }
       }
       if (capture !== null && r.request === pendingState) reportActive(connection, capture, generation);
@@ -65,17 +65,18 @@ function managedRule(rule) {
       frames?.length !== FRAME_TYPES.length || !FRAME_TYPES.every(type => frames.includes(type))) return false;
   const keys = Object.keys(condition);
   if (rule.id >= FIRST_BLOCK_RULE && condition.regexFilter === WEB_URL && keys.length === 3 &&
-      Array.isArray(condition.excludedRequestDomains)) return true;
+      Array.isArray(condition.excludedRequestDomains)) return true; // старое правило «закрыто всё, кроме списка»
+  if (rule.id >= FIRST_BLOCK_RULE && keys.length === 2 && Array.isArray(condition.requestDomains)) return true;
   return (rule.id >= FIRST_BLOCK_RULE || (rule.id >= 1 && rule.id <= LAST_LEGACY_RULE)) &&
     keys.length === 2 && /^\|\|[a-z0-9.-]+\^$/.test(condition.urlFilter);
 }
 
-async function applyPolicy(allowed) {
-  const domains = allowed && [...new Set(allowed)].sort();
+async function applyPolicy(blocked) {
+  const domains = blocked?.length ? [...new Set(blocked)].sort() : null;
   try {
     const installed = await chrome.declarativeNetRequest.getDynamicRules();
     const managed = installed.filter(managedRule);
-    const current = managed[0]?.condition.excludedRequestDomains;
+    const current = managed[0]?.condition.requestDomains;
     const matches = domains === null ? managed.length === 0 : managed.length === 1 &&
       current?.length === domains.length && [...current].sort().every((domain, index) => domain === domains[index]);
     if (!matches) {
@@ -85,7 +86,7 @@ async function applyPolicy(allowed) {
       const addRules = domains === null ? [] : [{
         id,
         action: { type: 'block' },
-        condition: { regexFilter: WEB_URL, excludedRequestDomains: domains, resourceTypes: FRAME_TYPES },
+        condition: { requestDomains: domains, resourceTypes: FRAME_TYPES },
       }];
       await chrome.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: managed.map(rule => rule.id),

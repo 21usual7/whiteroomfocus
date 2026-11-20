@@ -30,7 +30,7 @@ CLI review and math practice extract caller-selected UTF-8 text attachments loca
 
 The extension reconciles installed dynamic rules after confirmed host state and retries failed updates on later confirmed replies. During loss of host confirmation, the popup can explicitly release WHITE ROOM rules through the extension. It reports the installed rule count after the change. Reconnection reconciles with the current session again. Browser capture still uses its existing per-session and per-site permissions.
 
-During a focus session, the native host sends the allowlist for its effective topic. Every topic includes `google.com`. One Chromium rule blocks other HTTP and HTTPS page and frame navigations. Topic allowlists use a new SQLite table. The previous domain list stays available in historical exports.
+During a focus session, the native host sends the session denylist (D18). One Chromium rule blocks page and frame navigations to those domains and their subdomains; other sites stay open. An empty list installs no rule. The extension also recognises the former allowlist rule as its own and replaces it. The denylist uses the `block` SQLite table. The per-topic `topic_site` table from D12 stays available in exports.
 
 On Hyprland, a Quickshell Layer Shell surface shows elapsed time in the overlay layer. The CLI watches the active session ID in SQLite and the overlay closes when that ID stops being active.
 

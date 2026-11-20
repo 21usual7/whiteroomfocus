@@ -30,6 +30,20 @@ function answerForm(label, submitLabel, onSubmit, input = element("input")) {
   return form;
 }
 
+const errorText = (error) => error instanceof Error ? error.message : String(error);
+
+// Пока открыт недельный блок, ядро закрывает тьютора, подсказки и ключи; окно прячет их кнопки.
+let selfTest = false;
+function syncHelp() {
+  const why = selfTest ? "Идёт недельная проверка: тьютор, подсказки и разбор с Claude откроются после последнего ответа." : "";
+  for (const node of [$("open-tutor"), $("review-session"), document.querySelector('nav [aria-controls="tutor"]')]) {
+    node.disabled = selfTest;
+    node.title = why;
+  }
+  $("help-lock").textContent = why;
+  $("help-lock").hidden = !selfTest;
+}
+
 async function run(controls, message, task) {
   if (controls.disabled) return;
   controls.disabled = true;
@@ -111,8 +125,63 @@ function syncScene() {
   field.setScene(body.classList.contains("setup") ? "setup" : "dash");
 }
 
+// Параметры сессии — по одному вопросу на экране, а не форма настроек.
+const asks = [...focusForm.querySelectorAll(".ask")];
+let askIndex = 0;
+function showAsk(index) {
+  askIndex = Math.max(0, Math.min(asks.length - 1, index));
+  asks.forEach((ask, i) => ask.classList.toggle("current", i === askIndex));
+  const last = askIndex === asks.length - 1;
+  $("ask-back").hidden = askIndex === 0;
+  $("ask-next").hidden = last;
+  $("ask-start").hidden = !last;
+  $("ask-dots").textContent = asks.map((_, i) => (i === askIndex ? "●" : "○")).join(" ");
+  if (last) {
+    const goal = $("focus-goal").selectedOptions[0].text.toLowerCase();
+    $("commit-text").textContent = `Тема: «${focusForm.elements.topic.value.trim()}». Ты думаешь, что это займёт ${$("focus-estimate").value} мин. Лимит: ${goal}.`;
+  }
+  asks[askIndex].querySelector("input:checked, input, select")?.focus();
+}
+// Дальше — только после ответа: пустые обязательные поля не пускают.
+function nextAsk() {
+  if ([...asks[askIndex].querySelectorAll("input, select")].every(field => field.reportValidity())) showAsk(askIndex + 1);
+}
+$("ask-back").addEventListener("click", () => showAsk(askIndex - 1));
+$("ask-next").addEventListener("click", nextAsk);
+async function renderApps() {
+  const apps = await read("blocked_apps");
+  $("app-list").replaceChildren(...apps.map((name) => {
+    const row = element("li");
+    row.append(element("span", name), button("Убрать", () => changeApp("app_unblock", name)));
+    return row;
+  }));
+}
+async function changeApp(command, name) {
+  await run(studyControls, studyMessage, async () => {
+    await invoke(command, { name });
+    $("app-input").value = "";
+    await renderApps();
+  });
+}
+$("app-add").addEventListener("click", () => changeApp("app_block", $("app-input").value));
+$("app-input").closest(".ask").querySelectorAll("[data-app]").forEach(item =>
+  item.addEventListener("click", () => changeApp("app_block", item.dataset.app)));
+focusForm.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.id === "app-input") {
+    event.preventDefault();
+    changeApp("app_block", event.target.value);
+    return;
+  }
+  if (event.key === "Enter" && askIndex < asks.length - 1 && event.target.tagName !== "BUTTON") {
+    event.preventDefault();
+    nextAsk();
+  }
+});
+
 function openSetup() {
   body.classList.add("setup");
+  showAsk(0);
+  run(studyControls, studyMessage, renderApps);
   syncScene();
   focusForm.querySelector("[name=mode]:checked")?.focus();
 }
@@ -179,9 +248,11 @@ async function loadBriefing() {
   try {
     // shortcut: смещение берётся на сегодня; если между днями был переход на летнее время, граница сдвинется на час.
     brief = await read("briefing", { offset: -new Date().getTimezoneOffset() * 60 });
+    selfTest = await read("self_test_active");
   } catch {
     brief = null;
   }
+  syncHelp();
   renderPanels();
   drawAtlas();
 }
@@ -196,7 +267,7 @@ function priorities() {
   const plan = brief.plan;
   const out = [];
   if (plan.due) out.push([`Повторить ${plan.due} ${plural(plan.due, "карточку", "карточки", "карточек")}`, "reviews"]);
-  for (const title of plan.tests) out.push([`Недельная проверка: ${title}`, "test"]);
+  for (const title of plan.tests) out.push([`${selfTest ? "Продолжить блок" : "Недельная проверка"}: ${title}`, "test"]);
   for (const title of plan.working) out.push([`Вернуться к задаче «${title}»`, "practice"]);
   if (!plan.due && plan.fresh) out.push([`Новые вопросы: ${plan.fresh}`, "reviews"]);
   const last = brief.last?.studies.at(-1);
@@ -219,7 +290,10 @@ function act([, target, study]) {
     openSetup();
     return;
   }
-  document.querySelector(`nav [aria-controls="${target}"]`)?.click();
+  if (target === "test") weeklyRequested = true;
+  const tab = document.querySelector(`nav [aria-controls="${target === "test" ? "reviews" : target}"]`);
+  if (tab?.getAttribute("aria-pressed") === "true") load[tab.getAttribute("aria-controls")]();
+  else tab?.click();
 }
 
 function priorityList() {
@@ -227,8 +301,7 @@ function priorityList() {
   if (!items.length) return [element("li", "На сегодня ничего не запланировано. Можно начать сессию.")];
   return items.map((item) => {
     const row = element("li");
-    if (item[1] === "test") row.append(element("span", item[0]), element("code", "whiteroom test"));
-    else row.append(button(item[0], () => act(item)));
+    row.append(button(item[0], () => act(item)));
     return row;
   });
 }
@@ -511,11 +584,13 @@ $("start-study").addEventListener("submit", (event) => {
     field.setScene("enter");
     try {
       await pause(850);
-      const [started, name, tracking, capture, timerError] = await read("study_start", { topic, mode, direction, windows, browser });
+      const [started, name, tracking, capture, timerError] = await read("study_start", { topic, mode, direction, windows, browser, estimate: Number($("focus-estimate").value) || 0, mute: $("mute-notifications").checked });
       storeGoal(capture[0], Number($("focus-goal").value));
       showStudy([started, name, [mode, direction], capture]);
       $("capture-window").checked = false;
       $("capture-browser").checked = false;
+      $("focus-estimate").value = "";
+      $("commit").checked = false;
       form.elements.topic.value = "";
       studyMessage.textContent = [!tracking && "Сессия началась, но трекер не запустился.", timerError]
         .filter(Boolean).join(" ");
@@ -534,6 +609,8 @@ $("start-study").addEventListener("submit", (event) => {
 
 // Разбор сессии: Claude составляет вопросы по журналу, они попадают в «Повторения».
 // Сначала показываем точный запрос — в нём заголовки окон и выдержки страниц.
+let summarySession = null;
+
 function reviewReset(message = "") {
   $("review-preview").replaceChildren();
   $("review-status").textContent = message;
@@ -545,7 +622,8 @@ $("review-session").addEventListener("click", async () => {
   start.disabled = true;
   $("review-status").textContent = "Готовлю запрос…";
   try {
-    const preview = await read("review_prepare");
+    const files = await Promise.all([...$("review-files").files].map(async (file) => [file.name, await file.text()]));
+    const preview = await read("review_prepare", { sessionId: summarySession, text: $("review-text").value, files });
     const json = element("pre", preview.requestJson);
     json.className = "tutor-json";
     json.tabIndex = 0;
@@ -556,9 +634,11 @@ $("review-session").addEventListener("click", async () => {
       try {
         const result = await read("review_send", { previewId: preview.previewId });
         reviewReset(result.count
-          ? `${result.summary} Добавлено вопросов: ${result.count}, они ждут во вкладке «Повторения».`
+          ? `${result.summary} Вопросов на просмотр: ${result.count}. Проверь ключи и добавь нужные в повторения.`
           : `${result.summary} Проверяемых вопросов не получилось.`);
-        start.hidden = true;
+        start.hidden = result.count > 0;
+        await renderDrafts($("review-drafts"), result.sessionId);
+        $("review-drafts").querySelector("button")?.focus();
       } catch (error) {
         reviewReset(error instanceof Error ? error.message : String(error));
       }
@@ -579,9 +659,85 @@ $("review-session").addEventListener("click", async () => {
   } catch (error) {
     $("review-status").textContent = error instanceof Error ? error.message : String(error);
   } finally {
-    start.disabled = false;
+    start.disabled = selfTest;
   }
 });
+
+// Вопросы Claude сначала на просмотре: ключ, объяснение и цитата видны до добавления в повторения.
+const DRAFT_STATUS = { pending: "ждёт решения", accepted: "в повторениях", rejected: "отклонён", disputed: "исключён из оценки" };
+
+async function renderDrafts(container, sessionId) {
+  const drafts = await read("review_drafts", { sessionId });
+  const refresh = async () => {
+    await renderDrafts(container, sessionId);
+    (container.querySelector("button") ?? container.querySelector("h3"))?.focus();
+  };
+  const heading = element("h3", "Вопросы Claude на просмотре");
+  heading.tabIndex = -1;
+  container.replaceChildren(...(drafts.length ? [heading] : []), ...drafts.map(d => draftCard(d, refresh)));
+  return drafts;
+}
+
+function draftCard(d, refresh) {
+  const card = element("article");
+  card.className = "draft";
+  const key = element("p", "Ключ: " + d.answers.join(" | "));
+  const source = d.source ? element("blockquote", d.source) : element("p", "Источник: " + d.sourceLabel);
+  card.append(element("strong", d.prompt), key, element("p", d.explain), source, element("small", DRAFT_STATUS[d.status] ?? d.status));
+  if (d.status !== "pending") return card;
+  const message = element("p");
+  message.setAttribute("role", "status");
+  const act = (command) => async () => {
+    try {
+      await invoke(command, { id: d.id });
+      await refresh();
+    } catch (error) {
+      message.textContent = errorText(error);
+    }
+  };
+  const actions = element("div");
+  actions.className = "tutor-actions";
+  actions.append(button("Добавить в повторения", act("draft_accept")),
+    button("Исправить", () => card.replaceWith(draftEditor(d, refresh))),
+    button("Отклонить", act("draft_reject")));
+  card.append(actions, message);
+  return card;
+}
+
+function draftEditor(d, refresh) {
+  const form = element("form");
+  form.className = "draft";
+  const field = (label, node, value) => {
+    node.value = value;
+    const wrap = element("label", label + " ");
+    wrap.append(node);
+    return wrap;
+  };
+  const prompt = element("input"), kind = element("select"), answers = element("input"), explain = element("textarea");
+  for (const [value, title] of [["text", "текст"], ["number", "число"]]) {
+    const option = element("option", title);
+    option.value = value;
+    kind.append(option);
+  }
+  const message = element("p");
+  message.setAttribute("role", "status");
+  const actions = element("div");
+  actions.className = "tutor-actions";
+  actions.append(element("button", "Сохранить"), button("Отмена", refresh));
+  form.append(field("Вопрос", prompt, d.prompt), field("Тип ответа", kind, d.kind),
+    field("Ключ (варианты через |)", answers, d.answers.join(" | ")), field("Объяснение", explain, d.explain), actions, message);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await invoke("draft_edit", { id: d.id, edit: { prompt: prompt.value, kind: kind.value, answers: answers.value.split("|"), hint: d.hint, explain: explain.value } });
+      await refresh();
+    } catch (error) {
+      message.textContent = errorText(error);
+    }
+  });
+  setTimeout(() => answers.focus());
+  return form;
+}
 
 // Редактор сетапа: ряды «рабочий стол → приложение» вместо ручной правки TOML.
 const SETUP_APPS = [
@@ -689,7 +845,10 @@ $("setup-file").addEventListener("click", () => {
 
 $("stop-study").addEventListener("click", () => {
   run(studyControls, studyMessage, async () => {
+    const stopped = activeStudyId;
     const log = await invoke("study_stop", { id: activeStudyId });
+    summarySession = stopped;
+    $("review-drafts").replaceChildren();
     body.classList.remove("setup");
     showStudy(null);
     field.pulse();
@@ -701,17 +860,42 @@ $("stop-study").addEventListener("click", () => {
 });
 setInterval(updateTimer, 1000);
 
+let reviewLimit = 0;
+$("self-check").addEventListener("click", () => {
+  reviewLimit = 5;
+  act(["", "reviews"]);
+});
+
 const reviewContent = $("review-content");
 const reviewMessage = $("review-message");
 let reviewing = false;
 
-function loadReviews() {
+let weeklyRequested = false;
+let weekly = null;
+let weeklyLive = false;
+
+async function loadReviews() {
+  if (weekly) {
+    weekly.focus();
+    return;
+  }
   if (reviewing) return;
-  run(reviewContent, reviewMessage, async () => {
-    const queue = await read("review_queue");
+  const input = await run(reviewContent, reviewMessage, async () => {
+    selfTest = await read("self_test_active");
+    syncHelp();
+    if (selfTest || weeklyRequested) {
+      weeklyRequested = false;
+      return showWeekly();
+    }
+    const pending = element("div");
+    pending.className = "drafts";
+    const drafts = await renderDrafts(pending, null);
+    const queue = (await read("review_queue")).slice(0, reviewLimit || undefined);
+    reviewLimit = 0;
     const total = queue.length;
     if (!total) {
-      reviewContent.replaceChildren(element("p", "Сегодня нечего повторять"));
+      reviewContent.replaceChildren(element("p", drafts.length
+        ? "Повторений нет. Проверь вопросы Claude: принятые появятся здесь." : "Сегодня нечего повторять"), pending);
       return;
     }
     const prediction = element("input");
@@ -729,17 +913,79 @@ function loadReviews() {
         });
         if (!$("reviews").hidden) input?.focus();
       }, prediction,
-    ));
+    ), pending);
+    return prediction;
   });
+  if (!$("reviews").hidden) input?.focus();
+}
+
+// Недельный блок: по одному вопросу без ключей; каждый вызов test_current — новый показ,
+// поэтому вопрос запрашивается один раз и остаётся на экране при переключении вкладок.
+async function showWeekly() {
+  const q = await read("test_current");
+  if (!q) {
+    weekly = null;
+    selfTest = false;
+    syncHelp();
+    reviewContent.replaceChildren(element("p", "Недельных проверок сейчас нет."));
+    return null;
+  }
+  selfTest = true;
+  syncHelp();
+  const opened = performance.now();
+  const input = element("input");
+  input.required = true;
+  input.autocomplete = "off";
+  const form = answerForm("Ответ", "Ответить", async (answer) => {
+    const next = await run(reviewContent, reviewMessage, async () => {
+      const result = await read("test_submit", { block: q.block, itemId: q.item.id, answer, ms: Math.round(performance.now() - opened) });
+      weekly = null;
+      return result.closed ? showWeeklyReview(result) : showWeekly();
+    });
+    if (!$("reviews").hidden) next?.focus();
+  }, input);
+  const resumed = q.resumed && !weeklyLive ? "Продолжаем начатый блок · " : "";
+  weeklyLive = true;
+  const lock = element("p", "Отвечай сам: тьютор, подсказки и ключи закрыты. Разбор — после последнего ответа блока.");
+  lock.className = "notice";
+  const question = element("h2", q.item.prompt);
+  question.className = "prose";
+  reviewContent.replaceChildren(element("p", `${resumed}Недельная проверка · вопрос ${q.total - q.left + 1}/${q.total}`), lock, question);
+  if (q.item.code) reviewContent.append(element("pre", q.item.code));
+  reviewContent.append(form);
+  weekly = input;
+  return input;
+}
+
+function showWeeklyReview(result) {
+  weeklyLive = false;
+  selfTest = false;
+  syncHelp();
+  const list = element("ol");
+  for (const row of result.review) {
+    const entry = element("li");
+    entry.append(element("strong", row.prompt),
+      element("p", `${row.correct ? "✓ Верно" : "✗ Неверно"} · твой ответ: ${row.answer || "—"} · ключ: ${row.key}`),
+      element("p", row.explain));
+    list.append(entry);
+  }
+  const done = button("Готово", () => {
+    reviewContent.replaceChildren();
+    loadReviews();
+  });
+  reviewContent.replaceChildren(element("h2", `Блок закрыт: верно ${result.correct} из ${result.total}`), element("p", "Разбор"), list, done);
+  loadBriefing();
+  return done;
 }
 
 function showQuestions(queue, sessionId, predicted) {
   const total = queue.length;
   let index = 0;
   let correct = 0;
+  let helped = 0; // верные с подсказкой: в факт для прогноза не входят, как в ядре
 
   function showQuestion() {
-    const [itemId, role, prompt, code, hint] = queue[index];
+    const [itemId, role, prompt, code, hint, claude] = queue[index];
     const opened = performance.now();
     let usedHint = false;
     const hintText = element("p");
@@ -752,8 +998,9 @@ function showQuestions(queue, sessionId, predicted) {
         const result = await read("answer", { sessionId, itemId, role, answer, hint: usedHint, ms });
         if (result.ok) field.activate("recall");
         if (role !== "retry") {
-          if (result.ok) correct += 1;
-          else queue.push([itemId, "retry", prompt, code, null]);
+          if (result.ok && usedHint) helped += 1;
+          else if (result.ok) correct += 1;
+          else queue.push([itemId, "retry", prompt, code, null, claude]);
         }
         const verdict = result.ok ? "✓ Верно" : `✗ Неверно. Ответ: ${result.answer}`;
         const feedback = element("div");
@@ -769,9 +1016,25 @@ function showQuestions(queue, sessionId, predicted) {
           run(reviewContent, reviewMessage, async () => {
             await invoke("session_end", { id: sessionId, correct });
             reviewing = false;
-            reviewContent.replaceChildren(element("p", `Итог: ${correct}/${total}, прогноз был ${predicted}`));
+            reviewContent.replaceChildren(element("p", `Сам: ${correct}/${total}, прогноз был ${predicted}${helped ? `; с подсказкой ещё ${helped}` : ""}`));
           });
         });
+        if (claude) feedback.append(button("Сообщить об ошибке", (event) => {
+          const note = element("input");
+          note.placeholder = "Что не так с вопросом или ключом";
+          const report = answerForm("Ошибка", "Отправить", async (text) => {
+            try {
+              await invoke("item_dispute", { itemId, note: text });
+              for (let i = queue.length - 1; i > index; i -= 1) if (queue[i][0] === itemId) queue.splice(i, 1);
+              report.replaceWith(element("p", "Вопрос убран из повторений и оценки, попытки сохранены."));
+              next.focus();
+            } catch (error) {
+              reviewMessage.textContent = errorText(error);
+            }
+          }, note);
+          event.currentTarget.replaceWith(report);
+          note.focus();
+        }));
         form.replaceWith(feedback, next);
         hintButton?.remove();
         return next;
@@ -862,11 +1125,14 @@ function showChallenge([id, title, kind, , , status, statement], setStatus) {
       result.textContent = ok ? "✓ Решено" : "✗ Неверно";
     });
   }, input);
-  detail.replaceChildren(element("h2", title), condition, button("Подсказка", () => {
+  const hintButton = button("Подсказка (решение будет отмечено как с помощью)", () => {
     run(practiceControls, hint, async () => {
       hint.textContent = await invoke("next_hint", { id });
     });
-  }), hint, form, result);
+  });
+  hintButton.disabled = selfTest;
+  if (selfTest) hint.textContent = "Подсказки закрыты до конца недельной проверки.";
+  detail.replaceChildren(element("h2", title), condition, hintButton, hint, form, result);
 
   if (!pwn) return;
   const files = element("div");
@@ -906,64 +1172,46 @@ function showChallenge([id, title, kind, , , status, statement], setStatus) {
 
 const siteControls = $("site-controls");
 const sitesMessage = $("sites-message");
-const siteTopic = $("site-topic");
-let focusSiteTopic = false;
-
-function selectedTopic() {
-  return activeStudyId !== null
-    ? $("study-topic").textContent
-    : focusForm.elements.topic.value.trim() || focusForm.elements.direction.value;
-}
-
 async function renderSites() {
-  const topic = siteTopic.value.trim();
-  const domains = await read("allowed_sites", { topic });
+  const domains = await read("blocked_sites");
   $("site-list").replaceChildren(...domains.map((domain) => {
     const row = element("li");
     row.append(element("span", domain));
-    if (domain !== "google.com") {
-      const remove = button("Убрать", () => {
-        run(siteControls, sitesMessage, async () => {
-          await invoke("site_remove", { topic, domain });
-          await renderSites();
-        });
+    const remove = button("Убрать", () => {
+      run(siteControls, sitesMessage, async () => {
+        await invoke("site_unblock", { domain });
+        await renderSites();
       });
-      remove.setAttribute("aria-label", "Убрать " + domain);
-      row.append(remove);
-    }
+    });
+    remove.setAttribute("aria-label", "Убрать " + domain);
+    row.append(remove);
     return row;
   }));
 }
 
-async function loadSites() {
-  if (!siteTopic.value) siteTopic.value = selectedTopic();
-  await renderSites();
-  const saved = await read("site_topics");
-  const options = new Set([...saved, ...historyRows.map(row => row[2]), ...modes.flatMap(mode => mode.options)]);
-  $("site-topics").replaceChildren(...Array.from(options, topic => new Option(topic)));
-}
-
 $("edit-topic-sites").addEventListener("click", () => {
-  siteTopic.value = selectedTopic();
-  focusSiteTopic = true;
   document.querySelector('[aria-controls="sites"]').click();
 });
-
-$("view-sites").addEventListener("submit", (event) => {
-  event.preventDefault();
-  run(siteControls, sitesMessage, renderSites);
-});
-
-siteTopic.addEventListener("input", () => $("site-list").replaceChildren());
 
 $("add-site").addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.currentTarget;
   run(siteControls, sitesMessage, async () => {
-    await invoke("site_allow", { topic: siteTopic.value, domain: form.elements.domain.value });
+    await invoke("site_block", { domain: form.elements.domain.value });
     form.reset();
-    await loadSites();
+    await renderSites();
   });
+});
+
+$("pilot-show").addEventListener("click", async () => {
+  const target = Math.round((brief?.retention_target ?? 0.9) * 100);
+  $("pilot-legend").textContent = `Минуты на календаре — активность, а не учебный результат. Учебные результаты — самостоятельная отложенная проверка и новые сопоставимые задачи. «Оценка» сессии — прогноз времени. Цель расписания повторений — вспомнить ${target}%. Ответы с подсказкой в зачёт не входят.`;
+  try {
+    $("pilot-text").textContent = await invoke("pilot_text");
+  } catch (error) {
+    $("pilot-text").textContent = errorText(error);
+  }
+  $("pilot-text").hidden = false;
 });
 
 const tabs = document.querySelectorAll("nav button");
@@ -1413,11 +1661,7 @@ const load = {
   study: loadStudy,
   reviews: loadReviews,
   practice: loadPractice,
-  sites: async () => {
-    await run(siteControls, sitesMessage, loadSites);
-    if (focusSiteTopic && !$("sites").hidden) siteTopic.focus();
-    focusSiteTopic = false;
-  },
+  sites: () => run(siteControls, sitesMessage, renderSites),
   tutor: loadTutorPage,
 };
 

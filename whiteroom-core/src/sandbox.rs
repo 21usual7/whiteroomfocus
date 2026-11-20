@@ -18,7 +18,11 @@ pub struct Limits {
 }
 
 /// R7: потолок, который задача не может превысить.
-pub const DEFAULT: Limits = Limits { mem_mb: 256, tasks: 64, secs: 10 };
+pub const DEFAULT: Limits = Limits {
+    mem_mb: 256,
+    tasks: 64,
+    secs: 10,
+};
 const MAX_SECS: u32 = 60;
 /// Интерактивный запуск (gdb, ручная отладка эксплойта) живёт дольше, но тоже не бесконечно.
 pub const INTERACTIVE_MAX_SECS: u32 = 3600;
@@ -39,7 +43,11 @@ pub struct Job {
 impl Job {
     pub fn new() -> Res<Job> {
         let base = std::env::var("XDG_RUNTIME_DIR").map_err(|_| "нет XDG_RUNTIME_DIR")?;
-        let dir = PathBuf::from(base).join("whiteroom/jobs").join(format!("{}-{}", std::process::id(), rand::random::<u64>()));
+        let dir = PathBuf::from(base).join("whiteroom/jobs").join(format!(
+            "{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
         for d in ["src", "out"] {
             std::fs::create_dir_all(dir.join(d)).map_err(|x| x.to_string())?;
         }
@@ -75,11 +83,44 @@ fn command(job: &Job, argv: &[&str], lim: Limits, cap: u32) -> Command {
     ] {
         c.args(["-p", &p]);
     }
-    c.args(["--", "env", "-i", "PATH=/usr/bin", "HOME=/work", "LANG=C.UTF-8"]);
-    c.args(["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--cap-drop", "ALL"]);
-    c.args(["--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib"]);
-    c.args(["--symlink", "usr/lib", "/lib64", "--ro-bind", "/etc/ld.so.cache", "/etc/ld.so.cache"]);
-    c.args(["--proc", "/proc", "--dev", "/dev", "--size", "67108864", "--tmpfs", "/tmp"]);
+    c.args([
+        "--",
+        "env",
+        "-i",
+        "PATH=/usr/bin",
+        "HOME=/work",
+        "LANG=C.UTF-8",
+    ]);
+    c.args([
+        "bwrap",
+        "--unshare-all",
+        "--die-with-parent",
+        "--new-session",
+        "--cap-drop",
+        "ALL",
+    ]);
+    c.args([
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--symlink",
+        "usr/bin",
+        "/bin",
+        "--symlink",
+        "usr/lib",
+        "/lib",
+    ]);
+    c.args([
+        "--symlink",
+        "usr/lib",
+        "/lib64",
+        "--ro-bind",
+        "/etc/ld.so.cache",
+        "/etc/ld.so.cache",
+    ]);
+    c.args([
+        "--proc", "/proc", "--dev", "/dev", "--size", "67108864", "--tmpfs", "/tmp",
+    ]);
     c.arg("--ro-bind").arg(job.src()).arg("/work/src");
     c.arg("--bind").arg(job.out()).arg("/work/out");
     c.args(["--chdir", "/work"]);
@@ -118,7 +159,10 @@ pub fn run(job: &Job, argv: &[&str], input: &[u8], lim: Limits) -> Res<Out> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|x| format!("песочница не запустилась: {x}"))?;
-    let (o, e) = (capped(child.stdout.take().unwrap()), capped(child.stderr.take().unwrap()));
+    let (o, e) = (
+        capped(child.stdout.take().unwrap()),
+        capped(child.stderr.take().unwrap()),
+    );
     let mut stdin = child.stdin.take().unwrap();
     let input = input.to_vec();
     let w = std::thread::spawn(move || {
@@ -126,20 +170,31 @@ pub fn run(job: &Job, argv: &[&str], input: &[u8], lim: Limits) -> Res<Out> {
     });
     let status = child.wait().map_err(|x| x.to_string())?;
     let _ = w.join();
-    Ok(Out { code: code(status), stdout: o.join().unwrap_or_default(), stderr: e.join().unwrap_or_default() })
+    Ok(Out {
+        code: code(status),
+        stdout: o.join().unwrap_or_default(),
+        stderr: e.join().unwrap_or_default(),
+    })
 }
 
 /// Интерактивный запуск: stdin/stdout/stderr — наши (терминал или pwntools `process`).
 pub fn run_interactive(job: &Job, argv: &[&str], lim: Limits) -> Res<i32> {
-    let s = command(job, argv, lim, INTERACTIVE_MAX_SECS).status().map_err(|x| format!("песочница не запустилась: {x}"))?;
+    let s = command(job, argv, lim, INTERACTIVE_MAX_SECS)
+        .status()
+        .map_err(|x| format!("песочница не запустилась: {x}"))?;
     Ok(code(s))
 }
 
 /// R11: проверка перед первым запуском. Ошибка — запуск кода выключен.
 pub fn check() -> Res<()> {
     let job = Job::new()?;
-    let out = run(&job, &["sh", "-c", "echo ok"], b"", Limits { secs: 5, ..DEFAULT })
-        .map_err(|x| format!("{x}. Нужны bubblewrap и systemd --user."))?;
+    let out = run(
+        &job,
+        &["sh", "-c", "echo ok"],
+        b"",
+        Limits { secs: 5, ..DEFAULT },
+    )
+    .map_err(|x| format!("{x}. Нужны bubblewrap и systemd --user."))?;
     if out.code != 0 || out.stdout != b"ok\n" {
         return Err(format!(
             "песочница недоступна (код {}): {}. Запуск кода выключен.",
@@ -153,7 +208,9 @@ pub fn check() -> Res<()> {
 /// Копирует файлы задания в src/ (имена — только простые, без путей).
 pub fn put(job: &Job, files: &[(&str, &[u8])]) -> Res<()> {
     for (name, data) in files {
-        let ok = !name.is_empty() && Path::new(name).file_name().is_some_and(|f| f == *name) && !name.starts_with('.');
+        let ok = !name.is_empty()
+            && Path::new(name).file_name().is_some_and(|f| f == *name)
+            && !name.starts_with('.');
         if !ok {
             return Err(format!("недопустимое имя файла: {name}"));
         }

@@ -45,8 +45,8 @@ function worker(initial) {
     state,
     request: () => alarm(),
     disconnect: () => disconnect(),
-    receive: (session, allowed, request = state.requests.at(-1).request) =>
-      receive({ ok: true, request, session, allowed, capture: null }),
+    receive: (session, blocked, request = state.requests.at(-1).request) =>
+      receive({ ok: true, request, session, blocked, capture: null }),
     message: type => new Promise(resolve => {
       assert.equal(message({ type }, {}, resolve), true);
     }),
@@ -59,11 +59,11 @@ test('restart and session end reconcile installed WHITE ROOM rules only', async 
   assert.equal((await run.message('blocking-status')).count, 0);
   assert.deepEqual(run.state.rules, [other]);
   run.request();
-  run.receive(true, ['google.com', 'study.example']);
+  run.receive(true, ['study.example', 'video.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
   const { condition } = run.state.rules[1];
-  assert.equal(condition.regexFilter, '^https?://');
-  assert.deepEqual(Array.from(condition.excludedRequestDomains), ['google.com', 'study.example']);
+  assert.equal(condition.regexFilter, undefined);
+  assert.deepEqual(Array.from(condition.requestDomains), ['study.example', 'video.example']);
   run.request();
   run.receive(false, []);
   assert.equal((await run.message('blocking-status')).count, 0);
@@ -73,22 +73,22 @@ test('restart and session end reconcile installed WHITE ROOM rules only', async 
 test('a failed update can retry the same desired state and stale replies are ignored', async () => {
   const run = worker([other]);
   run.state.failures = 1;
-  run.receive(true, ['google.com', 'study.example']);
+  run.receive(true, ['study.example', 'video.example']);
   assert.match((await run.message('blocking-status')).error, /Не удалось обновить/);
   run.request();
   run.receive(true, ['stale.example'], 1);
   assert.equal((await run.message('blocking-status')).count, 0);
-  run.receive(true, ['google.com', 'study.example']);
+  run.receive(true, ['study.example', 'video.example']);
   assert.equal((await run.message('blocking-status')).error, '');
   const { condition } = run.state.rules[1];
-  assert.equal(condition.regexFilter, '^https?://');
-  assert.deepEqual(Array.from(condition.excludedRequestDomains), ['google.com', 'study.example']);
+  assert.equal(condition.regexFilter, undefined);
+  assert.deepEqual(Array.from(condition.requestDomains), ['study.example', 'video.example']);
   assert.equal(run.state.updates, 2);
 });
 
 test('disconnect retains active rules until manual release and reconnect rechecks the session', async () => {
   const run = worker([legacy, other]);
-  run.receive(true, ['google.com', 'study.example']);
+  run.receive(true, ['study.example', 'video.example']);
   assert.equal((await run.message('release-blocking')).canRelease, false);
   assert.equal(run.state.updates, 1);
   run.disconnect();
@@ -98,7 +98,7 @@ test('disconnect retains active rules until manual release and reconnect recheck
   assert.equal((await run.message('release-blocking')).count, 0);
   assert.deepEqual(run.state.rules, [other]);
   run.request();
-  run.receive(true, ['google.com', 'study.example']);
+  run.receive(true, ['study.example', 'video.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
 });
 
@@ -109,16 +109,36 @@ test('a worker awaiting its first host reply can offer recovery for previously i
   assert.deepEqual(run.state.rules, [other]);
 });
 
-test('a topic switch replaces the exceptions without duplicating the block rule', async () => {
+test('a list change replaces the blocked domains without duplicating the block rule', async () => {
   const run = worker([legacy, other]);
-  run.receive(true, ['google.com', 'first.example']);
+  run.receive(true, ['first.example', 'video.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
   run.request();
-  run.receive(true, ['second.example', 'google.com']);
+  run.receive(true, ['video.example', 'second.example']);
   assert.equal((await run.message('blocking-status')).count, 1);
-  assert.deepEqual(Array.from(run.state.rules[1].condition.excludedRequestDomains), ['google.com', 'second.example']);
+  assert.deepEqual(Array.from(run.state.rules[1].condition.requestDomains), ['second.example', 'video.example']);
   run.request();
-  run.receive(true, ['google.com', 'second.example']);
+  run.receive(true, ['second.example', 'video.example']);
   await run.message('blocking-status');
   assert.equal(run.state.updates, 2);
+});
+
+test('an empty list installs no rule and an old topic allowlist rule is removed', async () => {
+  const allowlist = { id: 1_000_000, action: { type: 'block' },
+    condition: { regexFilter: '^https?://', excludedRequestDomains: ['google.com'], resourceTypes: ['main_frame', 'sub_frame'] } };
+  const run = worker([allowlist, other]);
+  run.receive(true, []);
+  assert.equal((await run.message('blocking-status')).count, 0);
+  assert.deepEqual(run.state.rules, [other]);
+});
+
+test('a host without the blocked list keeps rules and reports the outdated host', async () => {
+  const run = worker([other]);
+  run.receive(true, ['video.example']);
+  assert.equal((await run.message('blocking-status')).count, 1);
+  run.request();
+  run.receive(true, undefined);
+  const status = await run.message('blocking-status');
+  assert.match(status.error, /Обнови локальный процесс/);
+  assert.equal(status.count, 1);
 });

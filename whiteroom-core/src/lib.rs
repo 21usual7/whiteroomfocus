@@ -2,15 +2,18 @@
 //! Половина целей модуля случайно идёт в группу `wr` (сессии WHITE ROOM),
 //! половина — в `usual` (учишь как обычно). Сравнивается результат test7 по невиданным вопросам.
 
-pub mod challenge;
 pub mod ai_context;
 pub mod brief;
-pub mod overlay;
+pub mod challenge;
 pub mod focus;
 pub mod idle;
+pub mod overlay;
 pub mod sandbox;
 pub mod setup;
 pub mod tutor;
+pub mod weekly;
+pub use weekly::run_test;
+use weekly::OPEN_TEST;
 
 use fsrs::{DEFAULT_PARAMETERS, FSRS, MemoryState};
 use rand::seq::SliceRandom;
@@ -103,7 +106,9 @@ impl Module {
 /// Число как 64-битный регистр: "-4" и "0xfffffffffffffffc" равны.
 pub fn parse_num(s: &str) -> Option<u64> {
     let s = s.trim().to_lowercase().replace('_', "");
-    let (neg, s) = s.strip_prefix('-').map_or((false, s.as_str()), |r| (true, r));
+    let (neg, s) = s
+        .strip_prefix('-')
+        .map_or((false, s.as_str()), |r| (true, r));
     let n = match s.strip_prefix("0x") {
         Some(h) => u64::from_str_radix(h, 16).ok()?,
         None => s.parse::<u64>().ok()?,
@@ -112,7 +117,10 @@ pub fn parse_num(s: &str) -> Option<u64> {
 }
 
 fn norm(s: &str) -> String {
-    s.to_lowercase().chars().filter(|c| !c.is_whitespace() && *c != '%').collect()
+    s.to_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '%')
+        .collect()
 }
 
 pub fn grade(it: &Item, ans: &str) -> bool {
@@ -156,7 +164,16 @@ impl Db {
                  mode TEXT NOT NULL, direction TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS capture(study_id INTEGER PRIMARY KEY REFERENCES study(id),
                  windows INT NOT NULL, browser INT NOT NULL);
+             CREATE TABLE IF NOT EXISTS study_estimate(study_id INTEGER PRIMARY KEY REFERENCES study(id),
+                 minutes INT NOT NULL);
+             CREATE TABLE IF NOT EXISTS test_block(id INTEGER PRIMARY KEY, objective TEXT NOT NULL UNIQUE REFERENCES objective(id),
+                 arm TEXT NOT NULL, due_at INT NOT NULL, opened_at INT NOT NULL, closed_at INT);
+             CREATE TABLE IF NOT EXISTS test_exposure(block_id INT NOT NULL REFERENCES test_block(id),
+                 item_id TEXT NOT NULL, form TEXT NOT NULL, ord INT NOT NULL, shown_at INT, shows INT NOT NULL DEFAULT 0,
+                 attempt_id INT REFERENCES attempt(id), first INT, PRIMARY KEY(block_id, item_id));
              CREATE TABLE IF NOT EXISTS block(domain TEXT PRIMARY KEY);
+             CREATE TABLE IF NOT EXISTS block_app(name TEXT PRIMARY KEY);
+             CREATE TABLE IF NOT EXISTS study_mute(study_id INTEGER PRIMARY KEY REFERENCES study(id));
              CREATE TABLE IF NOT EXISTS topic_site(topic_key TEXT NOT NULL, topic TEXT NOT NULL,
                  domain TEXT NOT NULL, PRIMARY KEY(topic_key, domain));
              CREATE TABLE IF NOT EXISTS challenge_attempt(id INTEGER PRIMARY KEY, challenge_id INT NOT NULL
@@ -202,6 +219,8 @@ impl Db {
             }
             tx.commit().map_err(e)?;
         }
+        challenge::migrate(&c)?;
+        ai_context::migrate(&c)?;
         Ok(Db {
             c,
             fsrs: FSRS::new(&DEFAULT_PARAMETERS).map_err(e)?,
@@ -211,24 +230,49 @@ impl Db {
     /// Загружает или обновляет модуль. Уже распределённые цели не перераспределяются.
     pub fn load(&self, m: &Module, now: i64) -> Res<Vec<(String, String)>> {
         let arm_count = |arm: &str| -> Res<i64> {
-            self.c.query_row("SELECT count(*) FROM objective WHERE arm=?", [arm], |r| r.get(0)).map_err(e)
+            self.c
+                .query_row("SELECT count(*) FROM objective WHERE arm=?", [arm], |r| {
+                    r.get(0)
+                })
+                .map_err(e)
         };
-        let mut fresh: Vec<_> = m.objective.iter().filter(|o| self.arm(&o.id).ok().flatten().is_none()).collect();
+        let mut fresh: Vec<_> = m
+            .objective
+            .iter()
+            .filter(|o| self.arm(&o.id).ok().flatten().is_none())
+            .collect();
         fresh.shuffle(&mut rand::rng());
         for o in &fresh {
-            let arm = if arm_count("wr")? <= arm_count("usual")? { "wr" } else { "usual" };
+            let arm = if arm_count("wr")? <= arm_count("usual")? {
+                "wr"
+            } else {
+                "usual"
+            };
             self.c
-                .execute("INSERT INTO objective(id, title, arm, assigned_at) VALUES (?,?,?,?)", params![o.id, o.title, arm, now])
+                .execute(
+                    "INSERT INTO objective(id, title, arm, assigned_at) VALUES (?,?,?,?)",
+                    params![o.id, o.title, arm, now],
+                )
                 .map_err(e)?;
         }
         for o in &m.objective {
-            self.c.execute("UPDATE objective SET title=? WHERE id=?", params![o.title, o.id]).map_err(e)?;
+            self.c
+                .execute(
+                    "UPDATE objective SET title=? WHERE id=?",
+                    params![o.title, o.id],
+                )
+                .map_err(e)?;
         }
         for (ord, it) in m.item.iter().enumerate() {
             self.put_item(it, ord as i64)?;
         }
-        let mut st = self.c.prepare("SELECT id, arm FROM objective ORDER BY id").map_err(e)?;
-        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
+        let mut st = self
+            .c
+            .prepare("SELECT id, arm FROM objective ORDER BY id")
+            .map_err(e)?;
+        let rows = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(e)?;
         rows.collect::<Result<_, _>>().map_err(e)
     }
 
@@ -237,20 +281,31 @@ impl Db {
             .execute(
                 "INSERT INTO item(id, v, ord, objective, role, data) VALUES (?1,?2,?3,?4,?5,?6)
                  ON CONFLICT(id) DO UPDATE SET v=?2, ord=?3, objective=?4, role=?5, data=?6",
-                params![it.id, it.v, ord, it.objective, it.role, serde_json::to_string(it).map_err(e)?],
+                params![
+                    it.id,
+                    it.v,
+                    ord,
+                    it.objective,
+                    it.role,
+                    serde_json::to_string(it).map_err(e)?
+                ],
             )
             .map_err(e)?;
         Ok(())
     }
 
     fn arm(&self, obj: &str) -> Res<Option<String>> {
-        self.c.query_row("SELECT arm FROM objective WHERE id=?", [obj], |r| r.get(0)).optional().map_err(e)
+        self.c
+            .query_row("SELECT arm FROM objective WHERE id=?", [obj], |r| r.get(0))
+            .optional()
+            .map_err(e)
     }
 
     fn items(&self, sql: &str, p: impl rusqlite::Params) -> Res<Vec<Item>> {
         let mut st = self.c.prepare(sql).map_err(e)?;
         let rows = st.query_map(p, |r| r.get::<_, String>(0)).map_err(e)?;
-        rows.map(|d| serde_json::from_str(&d.map_err(e)?).map_err(e)).collect()
+        rows.map(|d| serde_json::from_str(&d.map_err(e)?).map_err(e))
+            .collect()
     }
 
     pub fn due_reviews(&self, now: i64) -> Res<Vec<Item>> {
@@ -266,6 +321,8 @@ impl Db {
     /// Новые вопросы практики группы wr, по очереди из разных целей (interleaving).
     /// Вопросы ИИ по сессиям, на которые ещё не отвечали: в приложении они идут в «Повторения».
     pub fn new_ai_items(&self) -> Res<Vec<Item>> {
+        // Очередь с подсказками (CLI и Tauri `review_queue`) закрыта, пока идёт недельная проверка.
+        self.help_allowed()?;
         self.items(
             "SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
              WHERE o.arm='ai' AND i.id NOT IN (SELECT item_id FROM card) ORDER BY i.ord",
@@ -305,8 +362,25 @@ impl Db {
         Ok(out)
     }
 
-    /// Записывает попытку. Для new/review обновляет расписание FSRS.
-    pub fn record(&self, session: Option<i64>, it: &Item, role: &str, ans: &str, ok: bool, hint: bool, ms: i64, now: i64) -> Res<()> {
+    /// Записывает попытку. Для new/review обновляет расписание FSRS с целью удержания 90% (`RETENTION`).
+    ///
+    /// Семантика входа FSRS: неверный самостоятельный ответ — `Again`, и он остаётся промахом, даже если
+    /// повтор после разбора (`retry`, расписание не трогает) верен. Верный самостоятельный — `Good`.
+    /// Ответ после подсказки без независимой попытки — практика, не вспоминание: для срока он равен
+    /// `Again` при любой правильности, поэтому карточка вернётся так же скоро, как после промаха.
+    /// `Hard` зарезервирован за успешным самостоятельным вспоминанием с трудом; в CLI и GUI такого
+    /// сигнала пока нет, поэтому `Hard` не выставляется.
+    pub fn record(
+        &self,
+        session: Option<i64>,
+        it: &Item,
+        role: &str,
+        ans: &str,
+        ok: bool,
+        hint: bool,
+        ms: i64,
+        now: i64,
+    ) -> Res<()> {
         self.c
             .execute(
                 "INSERT INTO attempt(session_id, item_id, item_v, role, ts, answer, correct, hint, ms) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -318,14 +392,28 @@ impl Db {
         }
         let prev: Option<(MemoryState, i64)> = self
             .c
-            .query_row("SELECT stability, difficulty, stability_fast, last FROM card WHERE item_id=?", [&it.id], |r| {
-                Ok((MemoryState { stability: r.get(0)?, difficulty: r.get(1)?, stability_fast: r.get(2)? }, r.get(3)?))
-            })
+            .query_row(
+                "SELECT stability, difficulty, stability_fast, last FROM card WHERE item_id=?",
+                [&it.id],
+                |r| {
+                    Ok((
+                        MemoryState {
+                            stability: r.get(0)?,
+                            difficulty: r.get(1)?,
+                            stability_fast: r.get(2)?,
+                        },
+                        r.get(3)?,
+                    ))
+                },
+            )
             .optional()
             .map_err(e)?;
         let elapsed = prev.map_or(0.0, |(_, last)| (now - last).max(0) as f32 / DAY as f32);
-        let s = self.fsrs.next_states_with_elapsed_days(prev.map(|p| p.0), RETENTION, elapsed).map_err(e)?;
-        let next = if !ok { s.again } else if hint { s.hard } else { s.good };
+        let s = self
+            .fsrs
+            .next_states_with_elapsed_days(prev.map(|p| p.0), RETENTION, elapsed)
+            .map_err(e)?;
+        let next = if !ok || hint { s.again } else { s.good };
         let due = now + (next.interval * DAY as f32) as i64;
         self.c
             .execute(
@@ -340,7 +428,10 @@ impl Db {
     pub fn done(&self, obj: &str, outside_min: i64, now: i64) -> Res<()> {
         let n = self
             .c
-            .execute("UPDATE objective SET done_at=?, outside_min=? WHERE id=? AND done_at IS NULL", params![now, outside_min, obj])
+            .execute(
+                "UPDATE objective SET done_at=?, outside_min=? WHERE id=? AND done_at IS NULL",
+                params![now, outside_min, obj],
+            )
             .map_err(e)?;
         if n == 0 {
             return Err(format!("цель «{obj}» не найдена или уже отмечена"));
@@ -348,73 +439,97 @@ impl Db {
         Ok(())
     }
 
-    pub fn tests_due(&self, now: i64) -> Res<Vec<Item>> {
-        self.items(
-            "SELECT i.data FROM item i JOIN objective o ON o.id=i.objective
-             WHERE i.role='test7' AND o.done_at IS NOT NULL AND o.done_at+?<=?
-               AND i.id NOT IN (SELECT item_id FROM attempt WHERE role='test7') ORDER BY i.ord",
-            [TEST_DELAY, now],
-        )
-    }
-
     pub fn status(&self, now: i64) -> Res<String> {
         let mut st = self
             .c
-            .prepare(
+            .prepare(&format!(
                 "SELECT o.id, o.title, o.arm, o.done_at, o.outside_min,
                    (SELECT count(*) FROM item i WHERE i.objective=o.id AND i.role='practice'),
                    (SELECT count(*) FROM card c JOIN item i ON i.id=c.item_id WHERE i.objective=o.id),
                    (SELECT sum(a.correct) FROM attempt a JOIN item i ON i.id=a.item_id WHERE i.objective=o.id AND a.role='test7'),
-                   (SELECT count(*) FROM attempt a JOIN item i ON i.id=a.item_id WHERE i.objective=o.id AND a.role='test7')
-                 FROM objective o ORDER BY o.arm DESC, o.id",
-            )
+                   (SELECT count(*) FROM attempt a JOIN item i ON i.id=a.item_id WHERE i.objective=o.id AND a.role='test7'),
+                   (SELECT count(*) FROM test_exposure x JOIN test_block b ON b.id=x.block_id
+                    WHERE b.objective=o.id AND b.closed_at IS NULL AND x.attempt_id IS NULL)
+                 FROM objective o ORDER BY o.arm DESC, o.id"
+            ))
             .map_err(e)?;
         let mut out = String::new();
         let mut rows = st.query([]).map_err(e)?;
         while let Some(r) = rows.next().map_err(e)? {
-            let (id, title, arm): (String, String, String) = (r.get(0).map_err(e)?, r.get(1).map_err(e)?, r.get(2).map_err(e)?);
+            let (id, title, arm): (String, String, String) = (
+                r.get(0).map_err(e)?,
+                r.get(1).map_err(e)?,
+                r.get(2).map_err(e)?,
+            );
             let done: Option<i64> = r.get(3).map_err(e)?;
             let outside: Option<i64> = r.get(4).map_err(e)?;
-            let (total, seen, ok, tested): (i64, i64, Option<i64>, i64) =
-                (r.get(5).map_err(e)?, r.get(6).map_err(e)?, r.get(7).map_err(e)?, r.get(8).map_err(e)?);
+            let (total, seen, ok, tested): (i64, i64, Option<i64>, i64) = (
+                r.get(5).map_err(e)?,
+                r.get(6).map_err(e)?,
+                r.get(7).map_err(e)?,
+                r.get(8).map_err(e)?,
+            );
             let group = match arm.as_str() {
                 "wr" => format!("WHITE ROOM, пройдено {seen}/{total}"),
                 "ai" => format!("вопросы ИИ по твоим сессиям: {seen}"),
+                "disputed" => format!("исключены из оценки: {total}"),
                 _ => "учишь сам".into(),
             };
+            let open_left: i64 = r.get(9).map_err(e)?;
             let state = match done {
                 None => "в работе".to_string(),
+                // Начатый блок: без счёта, чтобы не выдать правильность до разбора.
+                Some(_) if open_left > 0 => format!("проверка начата, осталось {open_left}: whiteroom test"),
                 Some(_) if tested > 0 => format!("проверка: {}/{tested}", ok.unwrap_or(0)),
                 Some(d) if d + TEST_DELAY <= now => "проверка доступна: whiteroom test".into(),
-                Some(d) => format!("проверка через {} дн.", (d + TEST_DELAY - now + DAY - 1) / DAY),
+                Some(d) => format!(
+                    "проверка через {} дн.",
+                    (d + TEST_DELAY - now + DAY - 1) / DAY
+                ),
             };
             let extra = outside.map_or(String::new(), |m| format!(", вне WHITE ROOM {m} мин"));
             out += &format!("{id:<10} {title}\n           {group}; {state}{extra}\n");
         }
         let due = self.due_reviews(now)?.len();
-        out += &format!("\nПовторений к выполнению: {due}\n\nИтог по группам (проверка через 7 дней):\n");
+        out += &format!(
+            "\nПовторений к выполнению: {due} (цель расписания: вспомнить 90%)\n\nИтог по группам (проверка через 7 дней):\n"
+        );
         for (arm, name) in [("wr", "WHITE ROOM"), ("usual", "учишь сам ")] {
             let (ok, n, sess_ms, outside): (i64, i64, i64, i64) = self
                 .c
                 .query_row(
-                    "SELECT
-                       (SELECT coalesce(sum(a.correct),0) FROM attempt a JOIN item i ON i.id=a.item_id JOIN objective o ON o.id=i.objective WHERE o.arm=?1 AND a.role='test7'),
-                       (SELECT count(*) FROM attempt a JOIN item i ON i.id=a.item_id JOIN objective o ON o.id=i.objective WHERE o.arm=?1 AND a.role='test7'),
+                    &format!("SELECT
+                       (SELECT coalesce(sum(a.correct),0) FROM attempt a JOIN item i ON i.id=a.item_id JOIN objective o ON o.id=i.objective WHERE o.arm=?1 AND a.role='test7' AND a.id NOT IN ({OPEN_TEST})),
+                       (SELECT count(*) FROM attempt a JOIN item i ON i.id=a.item_id JOIN objective o ON o.id=i.objective WHERE o.arm=?1 AND a.role='test7' AND a.id NOT IN ({OPEN_TEST})),
                        (SELECT coalesce(sum(a.ms),0) FROM attempt a JOIN item i ON i.id=a.item_id JOIN objective o ON o.id=i.objective WHERE o.arm=?1 AND a.role!='test7'),
-                       (SELECT coalesce(sum(outside_min),0) FROM objective WHERE arm=?1)",
+                       (SELECT coalesce(sum(outside_min),0) FROM objective WHERE arm=?1)"),
                     [arm],
                     |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                 )
                 .map_err(e)?;
-            let score = if n == 0 { "проверок ещё не было".to_string() } else { format!("{ok}/{n} ({}%)", ok * 100 / n) };
-            let time = if arm == "wr" { format!("{} мин в сессиях + {outside} мин вне", sess_ms / 60000) } else { format!("{outside} мин") };
+            let score = if n == 0 {
+                "проверок ещё не было".to_string()
+            } else {
+                format!("{ok}/{n} ({}%)", ok * 100 / n)
+            };
+            let time = if arm == "wr" {
+                format!("{} мин в сессиях + {outside} мин вне", sess_ms / 60000)
+            } else {
+                format!("{outside} мин")
+            };
             out += &format!("  {name}: {score}; время: {time}\n");
         }
-        let (k, pred, fact): (i64, i64, i64) = self
+        // Факт — верные самостоятельные ответы в том же наборе (session.correct, см. session_end).
+        let (k, pred, fact, planned, helped): (i64, i64, i64, i64, i64) = self
             .c
-            .query_row("SELECT count(*), coalesce(sum(predicted),0), coalesce(sum(correct),0) FROM session WHERE ended IS NOT NULL", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
+            .query_row(
+                "SELECT count(*), coalesce(sum(predicted),0), coalesce(sum(correct),0), coalesce(sum(planned),0),
+                   (SELECT count(*) FROM attempt a JOIN session s ON s.id=a.session_id
+                    WHERE s.ended IS NOT NULL AND a.role IN ('new','review') AND a.hint=1)
+                 FROM session WHERE ended IS NOT NULL",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
             .map_err(e)?;
         if k > 0 {
             let how = match pred - fact {
@@ -422,14 +537,35 @@ impl Db {
                 d if d > 0 => format!("переоцениваешь себя на {d}"),
                 d => format!("недооцениваешь себя на {}", -d),
             };
-            out += &format!("\nКалибровка за {k} сессий: прогноз {pred}, факт {fact} — {how}.\n");
+            out += &format!(
+                "\nКалибровка за {k} сессий: прогноз {pred}, факт {fact} — {how}. Вопросов {planned}, с подсказкой {helped} (не в факте).\n"
+            );
         }
         Ok(out)
     }
 
     pub fn export(&self) -> Res<serde_json::Value> {
         let mut all = serde_json::Map::new();
-        for t in ["objective", "item", "card", "session", "attempt", "focus", "page", "challenge", "challenge_attempt", "study", "study_focus", "capture", "block", "topic_site"] {
+        for t in [
+            "objective",
+            "item",
+            "card",
+            "session",
+            "attempt",
+            "focus",
+            "page",
+            "challenge",
+            "challenge_attempt",
+            "study",
+            "study_focus",
+            "capture",
+            "block",
+            "block_app",
+            "topic_site",
+            "test_block",
+            "test_exposure",
+            "ai_draft",
+        ] {
             let mut st = self.c.prepare(&format!("SELECT * FROM {t}")).map_err(e)?;
             let cols: Vec<String> = st.column_names().map(|s| s.to_string()).collect();
             let rows = st
@@ -448,7 +584,10 @@ impl Db {
                     Ok(serde_json::Value::Object(o))
                 })
                 .map_err(e)?;
-            all.insert(t.into(), rows.collect::<Result<Vec<_>, _>>().map_err(e)?.into());
+            all.insert(
+                t.into(),
+                rows.collect::<Result<Vec<_>, _>>().map_err(e)?.into(),
+            );
         }
         Ok(all.into())
     }
@@ -500,7 +639,9 @@ impl Db {
             )
             .map_err(e)?;
         let rows: Vec<(String, String, i64)> = st
-            .query_map(params![since, until, id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .query_map(params![since, until, id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .map_err(e)?
             .collect::<Result<_, _>>()
             .map_err(e)?;
@@ -562,11 +703,18 @@ fn ask(inp: &mut impl BufRead, out: &mut impl Write, q: &str) -> Res<Option<Stri
 }
 
 /// Ответ на вопрос: (ответ, была ли подсказка, мс). None — ввод закончился.
-fn answer(inp: &mut impl BufRead, out: &mut impl Write, it: &Item, hints: bool) -> Res<Option<(String, bool, i64)>> {
+fn answer(
+    inp: &mut impl BufRead,
+    out: &mut impl Write,
+    it: &Item,
+    hints: bool,
+) -> Res<Option<(String, bool, i64)>> {
     let t = Instant::now();
     let mut hint = false;
     loop {
-        let Some(a) = ask(inp, out, "> ")? else { return Ok(None) };
+        let Some(a) = ask(inp, out, "> ")? else {
+            return Ok(None);
+        };
         if a == "?" && hints {
             match &it.hint {
                 Some(h) if !hint => writeln!(out, "Подсказка: {h}").map_err(e)?,
@@ -580,37 +728,76 @@ fn answer(inp: &mut impl BufRead, out: &mut impl Write, it: &Item, hints: bool) 
     }
 }
 
-pub fn run_session(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i64, new_n: usize) -> Res<()> {
+pub fn run_session(
+    db: &Db,
+    inp: &mut impl BufRead,
+    out: &mut impl Write,
+    now: i64,
+    new_n: usize,
+) -> Res<()> {
+    db.help_allowed()?;
     let reviews = db.due_reviews(now)?;
-    let fresh = db.new_items(new_n)?;
+    let mut fresh = db.new_items(new_n)?;
+    fresh.extend(db.new_ai_items()?); // принятые на просмотре вопросы Claude
     let k = reviews.len() + fresh.len();
     if k == 0 {
-        writeln!(out, "Сегодня нечего делать: повторений нет, новые вопросы закончились.\n\
-                       Отметь изученные цели: whiteroom done <цель> <минут вне WHITE ROOM>").map_err(e)?;
+        writeln!(
+            out,
+            "Сегодня нечего делать: повторений нет, новые вопросы закончились.\n\
+                       Отметь изученные цели: whiteroom done <цель> <минут вне WHITE ROOM>"
+        )
+        .map_err(e)?;
         return Ok(());
     }
-    writeln!(out, "Сессия: повторений {}, новых {}.", reviews.len(), fresh.len()).map_err(e)?;
-    writeln!(out, "Пустой ответ — «не знаю», «?» — подсказка (снижает оценку).\n").map_err(e)?;
+    writeln!(
+        out,
+        "Сессия: повторений {}, новых {}.",
+        reviews.len(),
+        fresh.len()
+    )
+    .map_err(e)?;
+    writeln!(
+        out,
+        "Пустой ответ — «не знаю», «?» — подсказка (снижает оценку).\n"
+    )
+    .map_err(e)?;
     let predicted = loop {
-        let Some(a) = ask(inp, out, &format!("Прогноз: сколько из {k} ответишь правильно? "))? else { return Ok(()) };
+        let Some(a) = ask(
+            inp,
+            out,
+            &format!("Прогноз: сколько из {k} ответишь правильно? "),
+        )?
+        else {
+            return Ok(());
+        };
         match a.parse::<usize>() {
             Ok(p) if p <= k => break p,
             _ => writeln!(out, "Введи число от 0 до {k}.").map_err(e)?,
         }
     };
     let sid = db.session_begin(now, k as i64, predicted as i64)?;
-    let mut correct = 0;
+    let (mut correct, mut helped) = (0, 0);
     let mut wrong = Vec::new();
-    let queue = reviews.iter().map(|i| (i, "review")).chain(fresh.iter().map(|i| (i, "new")));
+    let queue = reviews
+        .iter()
+        .map(|i| (i, "review"))
+        .chain(fresh.iter().map(|i| (i, "new")));
     for (n, (it, role)) in queue.enumerate() {
-        let what = if role == "review" { "повторение" } else { "новый" };
+        let what = if role == "review" {
+            "повторение"
+        } else {
+            "новый"
+        };
         writeln!(out, "\n── {}/{k} [{}] {what}", n + 1, it.objective).map_err(e)?;
         show(out, it)?;
-        let Some((a, hint, ms)) = answer(inp, out, it, true)? else { break };
+        let Some((a, hint, ms)) = answer(inp, out, it, true)? else {
+            break;
+        };
         let ok = grade(it, &a);
         db.record(Some(sid), it, role, &a, ok, hint, ms, now)?;
+        helped += hint as usize;
         if ok {
-            correct += 1;
+            correct += !hint as usize;
             writeln!(out, "✓ Верно.").map_err(e)?;
         } else {
             writeln!(out, "✗ Неверно. Ответ: {}", it.answer[0]).map_err(e)?;
@@ -623,48 +810,35 @@ pub fn run_session(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i
         for it in wrong {
             writeln!(out).map_err(e)?;
             show(out, it)?;
-            let Some((a, _, ms)) = answer(inp, out, it, false)? else { break };
+            let Some((a, _, ms)) = answer(inp, out, it, false)? else {
+                break;
+            };
             let ok = grade(it, &a);
             db.record(Some(sid), it, "retry", &a, ok, false, ms, now)?;
-            writeln!(out, "{}", if ok { "✓ Верно." } else { "✗ Неверно." }).map_err(e)?;
+            writeln!(
+                out,
+                "{}",
+                if ok {
+                    "✓ Верно."
+                } else {
+                    "✗ Неверно."
+                }
+            )
+            .map_err(e)?;
             if !ok {
                 writeln!(out, "Ответ: {}. {}", it.answer[0], it.explain).map_err(e)?;
             }
         }
     }
-    db.session_end(sid, correct, now)?;
+    db.session_end(sid, correct as i64, now)?;
     writeln!(out, "\nИтог: {correct}/{k}, прогноз был {predicted}.").map_err(e)?;
+    if helped > 0 {
+        writeln!(out, "С подсказкой: {helped} — это практика, в итог и калибровку не входит.").map_err(e)?;
+    }
     Ok(())
 }
 
 /// Отложенная проверка: без подсказок и без разбора до конца, разбор — после.
-pub fn run_test(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i64) -> Res<()> {
-    let items = db.tests_due(now)?;
-    if items.is_empty() {
-        writeln!(out, "Проверок пока нет. Срок смотри в whiteroom status.").map_err(e)?;
-        return Ok(());
-    }
-    writeln!(out, "Проверка: {} вопросов. Без подсказок, разбор в конце.", items.len()).map_err(e)?;
-    let mut res = Vec::new();
-    for (n, it) in items.iter().enumerate() {
-        writeln!(out, "\n── {}/{}", n + 1, items.len()).map_err(e)?;
-        show(out, it)?;
-        let Some((a, _, ms)) = answer(inp, out, it, false)? else { break };
-        let ok = grade(it, &a);
-        db.record(None, it, "test7", &a, ok, false, ms, now)?;
-        res.push((it, a, ok));
-    }
-    writeln!(out, "\n══ Разбор").map_err(e)?;
-    for (it, a, ok) in &res {
-        if !ok {
-            writeln!(out, "✗ {} [{}]: твой ответ «{a}», верно {}. {}", it.id, it.objective, it.answer[0], it.explain).map_err(e)?;
-        }
-    }
-    let ok = res.iter().filter(|r| r.2).count();
-    writeln!(out, "Итог: {ok}/{}.", res.len()).map_err(e)?;
-    Ok(())
-}
-
 // ───────────── ИИ: вопросы по записанной активности ─────────────
 
 pub(crate) const MODEL: &str = "claude-haiku-5-5";
@@ -681,19 +855,21 @@ kind=text — одно-два слова или буква варианта; в 
 - Не выдумывай детали, которых по журналу не угадать: лучше общий, но точно верный вопрос по теме.\n\
 - Если учебной темы в журнале нет (мессенджеры, развлечения), верни пустой questions и скажи это в summary.\n\
 - summary — одно-два предложения: что изучалось и сколько времени. hint — намёк без ответа. \
-explain — разбор в 1–2 предложения.\n\
+explain — разбор в 1–2 предложения. source — дословная цитата из журнала или приложенного текста, \
+на которой основан вопрос, или пустая строка, если такой цитаты нет.\n\
 - Всё на русском, термины можно по-английски.";
 
 pub fn ai_request(activity: &str) -> serde_json::Value {
     let q = serde_json::json!({
         "type": "object", "additionalProperties": false,
-        "required": ["prompt", "kind", "answers", "hint", "explain"],
+        "required": ["prompt", "kind", "answers", "hint", "explain", "source"],
         "properties": {
             "prompt": {"type": "string"},
             "kind": {"type": "string", "enum": ["number", "text"]},
             "answers": {"type": "array", "items": {"type": "string"}},
             "hint": {"type": "string"},
-            "explain": {"type": "string"}
+            "explain": {"type": "string"},
+            "source": {"type": "string"}
         }
     });
     serde_json::json!({
@@ -724,9 +900,17 @@ pub fn ai_call(key: &str, body: &serde_json::Value) -> Res<serde_json::Value> {
         .send_json(body)
         .map_err(|x| format!("сеть: {x}"))?;
     let status = r.status().as_u16();
-    let v: serde_json::Value = r.body_mut().read_json().map_err(|x| format!("ответ API: {x}"))?;
+    let v: serde_json::Value = r
+        .body_mut()
+        .read_json()
+        .map_err(|x| format!("ответ API: {x}"))?;
     if status != 200 {
-        return Err(format!("API {status}: {}", v["error"]["message"].as_str().unwrap_or("неизвестная ошибка")));
+        return Err(format!(
+            "API {status}: {}",
+            v["error"]["message"]
+                .as_str()
+                .unwrap_or("неизвестная ошибка")
+        ));
     }
     Ok(v)
 }
@@ -743,18 +927,24 @@ pub fn ai_parse(resp: &serde_json::Value, now: i64) -> Res<(String, Vec<Item>)> 
         .and_then(|c| c.iter().rev().find(|b| b["type"] == "text"))
         .and_then(|b| b["text"].as_str())
         .ok_or("в ответе нет текста")?;
-    let v: serde_json::Value = serde_json::from_str(text).map_err(|x| format!("ответ не JSON: {x}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|x| format!("ответ не JSON: {x}"))?;
     let items = v["questions"]
         .as_array()
         .map(|qs| {
             qs.iter()
                 .filter_map(|q| {
                     let s = |k: &str| q[k].as_str().unwrap_or("").to_string();
-                    let answer: Vec<String> = q["answers"].as_array()?.iter().filter_map(|a| a.as_str().map(Into::into)).collect();
+                    let answer: Vec<String> = q["answers"]
+                        .as_array()?
+                        .iter()
+                        .filter_map(|a| a.as_str().map(Into::into))
+                        .collect();
                     let kind = s("kind");
                     let ok = !answer.is_empty()
                         && !s("prompt").is_empty()
-                        && (kind == "text" || (kind == "number" && answer.iter().all(|a| parse_num(a).is_some())));
+                        && (kind == "text"
+                            || (kind == "number" && answer.iter().all(|a| parse_num(a).is_some())));
                     ok.then(|| Item {
                         id: String::new(),
                         v: 1,
@@ -786,19 +976,23 @@ pub fn ai_parse(resp: &serde_json::Value, now: i64) -> Res<(String, Vec<Item>)> 
 #[serde(rename_all = "camelCase")]
 pub struct ReviewPreview {
     pub preview_id: String,
+    pub session_id: i64,
     pub request_json: String,
     pub estimated_tokens: usize,
     pub omitted: usize,
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReviewResult {
     pub summary: String,
     pub count: usize,
+    pub session_id: i64,
 }
 
-/// Разбор последней сессии в приложении: отправляется ровно показанный JSON и только один раз.
-pub struct ReviewDraft(std::sync::Mutex<Option<(String, serde_json::Value)>>);
+/// Разбор завершённой сессии в приложении: отправляется ровно показанный JSON и только один раз.
+/// Предпросмотр хранит снимок запроса и номер сессии: новая сессия не подменяет его материал.
+pub struct ReviewDraft(std::sync::Mutex<Option<(String, serde_json::Value, i64)>>);
 
 impl Default for ReviewDraft {
     fn default() -> Self {
@@ -811,21 +1005,42 @@ impl ReviewDraft {
         Self(std::sync::Mutex::new(None))
     }
 
-    fn slot(&self) -> Res<std::sync::MutexGuard<'_, Option<(String, serde_json::Value)>>> {
-        self.0.lock().map_err(|_| "Разбор недоступен. Перезапусти приложение.".into())
+    fn slot(&self) -> Res<std::sync::MutexGuard<'_, Option<(String, serde_json::Value, i64)>>> {
+        self.0
+            .lock()
+            .map_err(|_| "Разбор недоступен. Перезапусти приложение.".into())
     }
 
-    pub fn prepare(&self, db: &Db, now: i64) -> Res<ReviewPreview> {
-        let sources = db.review_sources(None, now)?;
-        let draft = ai_context::prepare(&sources, &[], ai_context::REVIEW_BYTES, ai_context::REVIEW_OUTPUT, ai_request)?;
+    pub fn prepare(&self, db: &Db, _now: i64) -> Res<ReviewPreview> {
+        self.prepare_for(db, None, &[])
+    }
+
+    /// session_id: None — последняя завершённая. attachments — явно выбранные .txt/.md или текст.
+    pub fn prepare_for(
+        &self,
+        db: &Db,
+        session_id: Option<i64>,
+        attachments: &[ai_context::SourceExcerpt],
+    ) -> Res<ReviewPreview> {
+        *self.slot()? = None;
+        db.help_allowed()?;
+        let (session_id, sources) = db.finished_session_sources(session_id)?;
+        let draft = ai_context::prepare(
+            &sources,
+            attachments,
+            ai_context::REVIEW_BYTES,
+            ai_context::REVIEW_OUTPUT,
+            ai_request,
+        )?;
         let id = format!("{:032x}", rand::random::<u128>());
         let preview = ReviewPreview {
             preview_id: id.clone(),
+            session_id,
             request_json: serde_json::to_string_pretty(&draft.body).map_err(e)?,
             estimated_tokens: draft.bytes.div_ceil(3),
             omitted: draft.omitted,
         };
-        *self.slot()? = Some((id, draft.body));
+        *self.slot()? = Some((id, draft.body, session_id));
         Ok(preview)
     }
 
@@ -841,17 +1056,28 @@ impl ReviewDraft {
         now: i64,
         transport: impl FnOnce(&serde_json::Value) -> Res<serde_json::Value>,
     ) -> Res<ReviewResult> {
-        let (_, body) = self
+        let (_, body, session_id) = self
             .slot()?
-            .take_if(|(id, _)| id == preview_id)
+            .take_if(|(id, _, _)| id == preview_id)
             .ok_or("Запрос уже отправлен или отменён. Подготовь заново.")?;
-        let (summary, items) = ai_parse(&transport(&body)?, now)?;
-        db.add_ai_items(&items, now)?;
-        Ok(ReviewResult { summary, count: items.len() })
+        db.help_allowed()?;
+        let (summary, count) = db.stage_review(Some(session_id), &body, &transport(&body)?, now)?;
+        Ok(ReviewResult {
+            summary,
+            count,
+            session_id,
+        })
     }
 }
 
-pub fn run_review(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i64, summary: &str, items: &[Item]) -> Res<()> {
+pub fn run_review(
+    db: &Db,
+    inp: &mut impl BufRead,
+    out: &mut impl Write,
+    now: i64,
+    summary: &str,
+    items: &[Item],
+) -> Res<()> {
     writeln!(out, "\n{summary}").map_err(e)?;
     if items.is_empty() {
         return Ok(());
@@ -859,25 +1085,46 @@ pub fn run_review(db: &Db, inp: &mut impl BufRead, out: &mut impl Write, now: i6
     db.c
         .execute("INSERT OR IGNORE INTO objective(id, title, arm, assigned_at) VALUES ('ai', 'Вопросы ИИ по сессиям', 'ai', ?)", [now])
         .map_err(e)?;
-    writeln!(out, "Пустой ответ — «не знаю», «?» — подсказка, «!» — вопрос неверный.").map_err(e)?;
+    writeln!(
+        out,
+        "Пустой ответ — «не знаю», «?» — подсказка, «!» — вопрос неверный."
+    )
+    .map_err(e)?;
     let mut correct = 0;
     for (n, it) in items.iter().enumerate() {
         db.put_item(it, now)?;
         writeln!(out, "\n── {}/{}", n + 1, items.len()).map_err(e)?;
         show(out, it)?;
-        let Some((a, hint, ms)) = answer(inp, out, it, true)? else { break };
+        let Some((a, hint, ms)) = answer(inp, out, it, true)? else {
+            break;
+        };
         if a == "!" {
-            db.c.execute("DELETE FROM item WHERE id=?", [&it.id]).map_err(e)?;
-            writeln!(out, "Убрал вопрос. Правильный, по мнению модели: {}", it.answer[0]).map_err(e)?;
+            db.c.execute("DELETE FROM item WHERE id=?", [&it.id])
+                .map_err(e)?;
+            writeln!(
+                out,
+                "Убрал вопрос. Правильный, по мнению модели: {}",
+                it.answer[0]
+            )
+            .map_err(e)?;
             continue;
         }
         let ok = grade(it, &a);
         db.record(None, it, "new", &a, ok, hint, ms, now)?;
         correct += ok as usize;
-        let verdict = if ok { "✓ Верно.".to_string() } else { format!("✗ Неверно. Ответ: {}", it.answer[0]) };
+        let verdict = if ok {
+            "✓ Верно.".to_string()
+        } else {
+            format!("✗ Неверно. Ответ: {}", it.answer[0])
+        };
         writeln!(out, "{verdict}\n{}", it.explain).map_err(e)?;
     }
-    writeln!(out, "\nИтог: {correct}/{}. Вопросы вернутся в повторениях (whiteroom session).", items.len()).map_err(e)?;
+    writeln!(
+        out,
+        "\nИтог: {correct}/{}. Вопросы вернутся в повторениях (whiteroom session).",
+        items.len()
+    )
+    .map_err(e)?;
     Ok(())
 }
 
@@ -894,13 +1141,21 @@ fn clip(s: &str, n: usize) -> String {
 
 impl Db {
     /// Сообщение от расширения — недоверенный ввод: проверяем тип, домен и длины.
-    pub fn page_event(&self, msg: &serde_json::Value, allowed_site: Option<&str>, now: i64) -> Res<()> {
+    pub fn page_event(
+        &self,
+        msg: &serde_json::Value,
+        allowed_site: Option<&str>,
+        now: i64,
+    ) -> Res<()> {
         if msg["type"] != "page" {
             return Err("неизвестный тип сообщения".into());
         }
         let domain = msg["domain"].as_str().unwrap_or("").to_lowercase();
-        let ok =
-            !domain.is_empty() && domain.len() <= 253 && domain.chars().all(|c| c.is_ascii_alphanumeric() || ".-:[]".contains(c));
+        let ok = !domain.is_empty()
+            && domain.len() <= 253
+            && domain
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ".-:[]".contains(c));
         if !ok {
             return Err("неверный домен".into());
         }
@@ -909,7 +1164,10 @@ impl Db {
         if !matches!(self.capture_state()?, Some((active, _, true)) if active == id) {
             return Err("Запись вкладок выключена.".into());
         }
-        if self.study_active()?.is_none_or(|(_, started, _)| now < started) {
+        if self
+            .study_active()?
+            .is_none_or(|(_, started, _)| now < started)
+        {
             return Err("Событие вне сессии.".into());
         }
         let title = clip(msg["title"].as_str().unwrap_or(""), MAX_TITLE);
@@ -955,7 +1213,12 @@ impl Db {
         Ok(output)
     }
 
-    fn page_excerpts(&self, since: i64, until: i64, id: Option<i64>) -> Res<Vec<ai_context::SourceExcerpt>> {
+    fn page_excerpts(
+        &self,
+        since: i64,
+        until: i64,
+        id: Option<i64>,
+    ) -> Res<Vec<ai_context::SourceExcerpt>> {
         let mut st = self
             .c
             .prepare(
@@ -964,7 +1227,9 @@ impl Db {
             )
             .map_err(e)?;
         let rows: Vec<(String, String, String)> = st
-            .query_map(params![since, until, id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .query_map(params![since, until, id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .map_err(e)?
             .collect::<Result<_, _>>()
             .map_err(e)?;
@@ -976,7 +1241,10 @@ impl Db {
             if total_chars > MAX_PAGES_CHARS {
                 break;
             }
-            output.push(ai_context::SourceExcerpt { name, text: excerpt });
+            output.push(ai_context::SourceExcerpt {
+                name,
+                text: excerpt,
+            });
         }
         Ok(output)
     }
@@ -1007,7 +1275,17 @@ pub fn write_native(out: &mut impl Write, v: &serde_json::Value) -> Res<()> {
 
 // ───────────── Учебная сессия и блокировка сайтов ─────────────
 
-const GOOGLE_DOMAIN: &str = "google.com";
+/// Имя приложения — часть класса окна Hyprland (например, discord, telegram).
+fn app_name(input: &str) -> Res<String> {
+    let name = input.trim().to_ascii_lowercase();
+    if (2..=64).contains(&name.len())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    {
+        Ok(name)
+    } else {
+        Err(format!("«{input}» — не имя приложения (пример: discord)"))
+    }
+}
 
 fn site_domain(input: &str) -> Res<String> {
     let input_lower = input.trim().to_ascii_lowercase();
@@ -1034,10 +1312,17 @@ fn site_domain(input: &str) -> Res<String> {
 impl Db {
     /// Начать сессию. Вторая подряд не начинается: сначала stop.
     pub fn study_start(&self, topic: &str, now: i64) -> Res<()> {
-        self.study_start_with_sources(topic, now, false, false).map(|_| ())
+        self.study_start_with_sources(topic, now, false, false)
+            .map(|_| ())
     }
 
-    pub fn study_start_with_sources(&self, topic: &str, now: i64, windows: bool, browser: bool) -> Res<i64> {
+    pub fn study_start_with_sources(
+        &self,
+        topic: &str,
+        now: i64,
+        windows: bool,
+        browser: bool,
+    ) -> Res<i64> {
         let tx = self.c.unchecked_transaction().map_err(e)?;
         let id = self.insert_study(topic, now, windows, browser)?;
         tx.commit().map_err(e)?;
@@ -1058,7 +1343,10 @@ impl Db {
         }
         let id = self.c.last_insert_rowid();
         self.c
-            .execute("INSERT INTO capture VALUES (?,?,?)", params![id, windows, browser])
+            .execute(
+                "INSERT INTO capture VALUES (?,?,?)",
+                params![id, windows, browser],
+            )
             .map_err(e)?;
         Ok(id)
     }
@@ -1164,53 +1452,124 @@ impl Db {
 
     pub fn study_active(&self) -> Res<Option<(i64, i64, String)>> {
         self.c
-            .query_row("SELECT id, started, topic FROM study WHERE ended IS NULL ORDER BY id DESC LIMIT 1", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
+            .query_row(
+                "SELECT id, started, topic FROM study WHERE ended IS NULL ORDER BY id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
             .optional()
             .map_err(e)
     }
 
-    /// Начало последней сессии (идущей или законченной) — с него review/practice берут активность.
-    pub fn study_last_start(&self) -> Res<Option<i64>> {
-        self.c.query_row("SELECT max(started) FROM study", [], |r| r.get(0)).map_err(e)
+    /// Оценка пользователя «сколько это займёт», минуты. 0 — не указана.
+    /// Сессия идёт без уведомлений: включаем «не беспокоить» на её время.
+    pub fn study_mute_set(&self, id: i64, mute: bool) -> Res<()> {
+        if mute {
+            self.c
+                .execute("INSERT OR IGNORE INTO study_mute VALUES (?)", [id])
+                .map_err(e)?;
+        }
+        Ok(())
     }
 
-    pub fn site_allow(&self, topic: &str, domain: &str) -> Res<()> {
-        let topic = topic.trim();
-        if topic.is_empty() {
-            return Err("Укажи тему сессии.".into());
-        }
-        let domain = site_domain(domain)?;
-        if domain != GOOGLE_DOMAIN {
+    pub fn study_muted(&self, id: i64) -> Res<bool> {
+        self.c
+            .query_row("SELECT count(*) FROM study_mute WHERE study_id=?", [id], |r| r.get::<_, i64>(0))
+            .map(|n| n > 0)
+            .map_err(e)
+    }
+
+    pub fn study_estimate_set(&self, id: i64, minutes: i64) -> Res<()> {
+        if minutes > 0 {
             self.c
                 .execute(
-                    "INSERT OR IGNORE INTO topic_site VALUES (?,?,?)",
-                    params![topic.to_lowercase(), topic, domain],
+                    "INSERT OR REPLACE INTO study_estimate VALUES (?,?)",
+                    params![id, minutes],
                 )
                 .map_err(e)?;
         }
         Ok(())
     }
 
-    pub fn site_remove(&self, topic: &str, domain: &str) -> Res<()> {
-        let domain = site_domain(domain)?;
-        if domain == GOOGLE_DOMAIN {
-            return Err("Google разрешён для всех тем.".into());
+    /// Строка калибровки: оценка против факта (пусто, если оценки не было).
+    pub fn estimate_line(&self, id: i64, started: i64, ended: i64) -> Res<String> {
+        let guess: Option<i64> = self
+            .c
+            .query_row(
+                "SELECT minutes FROM study_estimate WHERE study_id=?",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(e)?;
+        Ok(guess.map_or(String::new(), |guess| {
+            let fact = (ended - started + 30) / 60;
+            format!("Прогноз времени: {guess} мин, факт: {fact} мин ({:+}).\n", fact - guess)
+        }))
+    }
+
+    /// Начало последней сессии (идущей или законченной) — с него review/practice берут активность.
+    pub fn study_last_start(&self) -> Res<Option<i64>> {
+        self.c
+            .query_row("SELECT max(started) FROM study", [], |r| r.get(0))
+            .map_err(e)
+    }
+
+    /// Списки блокировки нельзя менять, пока идёт сессия.
+    fn settings_open(&self) -> Res<()> {
+        if self.study_active()?.is_some() {
+            return Err("Настройки блокировки можно менять только после завершения сессии.".into());
         }
+        Ok(())
+    }
+
+    pub fn site_block(&self, domain: &str) -> Res<()> {
+        self.settings_open()?;
         self.c
             .execute(
-                "DELETE FROM topic_site WHERE topic_key=? AND domain=?",
-                params![topic.trim().to_lowercase(), domain],
+                "INSERT OR IGNORE INTO block VALUES (?)",
+                [site_domain(domain)?],
             )
             .map_err(e)?;
         Ok(())
     }
 
-    pub fn site_topics(&self) -> Res<Vec<String>> {
+    pub fn site_unblock(&self, domain: &str) -> Res<()> {
+        self.settings_open()?;
+        self.c
+            .execute("DELETE FROM block WHERE domain=?", [site_domain(domain)?])
+            .map_err(e)?;
+        Ok(())
+    }
+
+    pub fn app_block(&self, name: &str) -> Res<()> {
+        self.settings_open()?;
+        self.c
+            .execute("INSERT OR IGNORE INTO block_app VALUES (?)", [app_name(name)?])
+            .map_err(e)?;
+        Ok(())
+    }
+
+    pub fn app_unblock(&self, name: &str) -> Res<()> {
+        self.settings_open()?;
+        self.c
+            .execute("DELETE FROM block_app WHERE name=?", [app_name(name)?])
+            .map_err(e)?;
+        Ok(())
+    }
+
+    pub fn blocked_apps(&self) -> Res<Vec<String>> {
+        let mut stmt = self.c.prepare("SELECT name FROM block_app ORDER BY name").map_err(e)?;
+        stmt.query_map([], |row| row.get(0))
+            .map_err(e)?
+            .collect::<Result<_, _>>()
+            .map_err(e)
+    }
+
+    pub fn blocked_sites(&self) -> Res<Vec<String>> {
         let mut stmt = self
             .c
-            .prepare("SELECT min(topic) FROM topic_site GROUP BY topic_key ORDER BY min(topic)")
+            .prepare("SELECT domain FROM block ORDER BY domain")
             .map_err(e)?;
         stmt.query_map([], |row| row.get(0))
             .map_err(e)?
@@ -1218,28 +1577,14 @@ impl Db {
             .map_err(e)
     }
 
-    pub fn allowed_sites(&self, topic: &str) -> Res<Vec<String>> {
-        let mut stmt = self
-            .c
-            .prepare("SELECT domain FROM topic_site WHERE topic_key=? ORDER BY domain")
-            .map_err(e)?;
-        let mut domains = vec![GOOGLE_DOMAIN.to_owned()];
-        for domain in stmt
-            .query_map([topic.trim().to_lowercase()], |row| row.get(0))
-            .map_err(e)?
-        {
-            domains.push(domain.map_err(e)?);
-        }
-        Ok(domains)
-    }
-
-    /// Список разрешённых сайтов и согласие на запись относятся к одной активной сессии.
+    /// Список заблокированных сайтов и согласие на запись относятся к одной активной сессии.
     pub fn browser_state(&self) -> Res<serde_json::Value> {
         let tx = self.c.unchecked_transaction().map_err(e)?;
         let session = self.study_active()?;
-        let allowed = match &session {
-            Some((_, _, topic)) => self.allowed_sites(topic)?,
-            None => Vec::new(),
+        let blocked = if session.is_some() {
+            self.blocked_sites()?
+        } else {
+            Vec::new()
         };
         let capture = self
             .capture_state()?
@@ -1247,7 +1592,7 @@ impl Db {
             .map(|entry| entry.0);
         tx.commit().map_err(e)?;
         Ok(
-            serde_json::json!({"session": session.is_some(), "allowed": allowed, "capture": capture}),
+            serde_json::json!({"session": session.is_some(), "blocked": blocked, "capture": capture}),
         )
     }
 }
@@ -1257,7 +1602,12 @@ const TRACK_UNIT: &str = "whiteroom-track";
 /// Трекер (`<cli> track`) — временный пользовательский сервис systemd: переживает закрытие терминала и окна.
 pub fn tracker_start(cli: &std::path::Path, id: i64) -> bool {
     let mut c = std::process::Command::new("systemd-run");
-    c.args(["--user", "--quiet", "--collect", &format!("--unit={TRACK_UNIT}-{id}")]);
+    c.args([
+        "--user",
+        "--quiet",
+        "--collect",
+        &format!("--unit={TRACK_UNIT}-{id}"),
+    ]);
     for k in [
         "HYPRLAND_INSTANCE_SIGNATURE",
         "WHITEROOM_DB",
@@ -1284,18 +1634,32 @@ pub fn tracker_stop(id: i64) {
 impl Db {
     /// Сессия повторений с прогнозом «сколько из planned отвечу» — для калибровки.
     pub fn session_begin(&self, now: i64, planned: i64, predicted: i64) -> Res<i64> {
+        self.help_allowed()?;
         self.c
-            .execute("INSERT INTO session(started, planned, predicted) VALUES (?,?,?)", params![now, planned, predicted])
+            .execute(
+                "INSERT INTO session(started, planned, predicted) VALUES (?,?,?)",
+                params![now, planned, predicted],
+            )
             .map_err(e)?;
         Ok(self.c.last_insert_rowid())
     }
 
-    pub fn session_end(&self, id: i64, correct: i64, now: i64) -> Res<()> {
-        self.c.execute("UPDATE session SET ended=?, correct=? WHERE id=?", params![now, correct, id]).map_err(e)?;
+    /// Для калибровки факт считается здесь — верные самостоятельные (без подсказки) new/review
+    /// этой сессии; `_correct` от клиента не используется и оставлен ради совместимости вызова.
+    pub fn session_end(&self, id: i64, _correct: i64, now: i64) -> Res<()> {
+        self.c
+            .execute(
+                "UPDATE session SET ended=?1, correct=(SELECT count(*) FROM attempt
+                   WHERE session_id=?2 AND role IN ('new','review') AND correct=1 AND hint=0) WHERE id=?2",
+                params![now, id],
+            )
+            .map_err(e)?;
         Ok(())
     }
 
     pub fn item(&self, id: &str) -> Res<Item> {
-        self.items("SELECT data FROM item WHERE id=?", [id])?.pop().ok_or(format!("вопроса {id} нет"))
+        self.items("SELECT data FROM item WHERE id=?", [id])?
+            .pop()
+            .ok_or(format!("вопроса {id} нет"))
     }
 }

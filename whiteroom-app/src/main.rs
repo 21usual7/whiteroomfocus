@@ -117,6 +117,8 @@ async fn study_start(
     direction: String,
     windows: bool,
     browser: bool,
+    estimate: i64,
+    mute: bool,
 ) -> Res<String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _study = STUDY.lock().map_err(|err| err.to_string())?;
@@ -130,6 +132,8 @@ async fn study_start(
         let started = now();
         let id = open_db()?
             .focus_start_with_sources(&mode, &direction, topic, started, windows, browser)?;
+        open_db()?.study_estimate_set(id, estimate)?;
+        open_db()?.study_mute_set(id, mute)?;
         let tracking = !windows || whiteroom_core::tracker_start(&cli, id);
         let timer_error = whiteroom_core::overlay::start(&cli, id, started).err();
         json((
@@ -195,21 +199,95 @@ async fn study_stop(id: i64) -> Res<String> {
         let ended = now();
         let (_, started, _) = db.stop_session(Some(id), ended)?;
         whiteroom_core::tracker_stop(id);
-        db.focus_range(started, ended, Some(id))
+        Ok(db.estimate_line(id, started, ended)? + &db.focus_range(started, ended, Some(id))?)
     })
     .await
     .map_err(|err| err.to_string())?
 }
 
+/// Разбор конкретной завершённой сессии; files — содержимое выбранных .txt/.md (имя, текст).
 #[tauri::command]
-async fn review_prepare() -> Res<String> {
-    json(REVIEW.prepare(&open_db()?, now())?)
+async fn review_prepare(
+    session_id: Option<i64>,
+    text: Option<String>,
+    files: Option<Vec<(String, String)>>,
+) -> Res<String> {
+    let files = files.unwrap_or_default();
+    if files.len() > 4 {
+        return Err("Можно приложить до 4 файлов на запрос.".into());
+    }
+    let mut attachments = Vec::new();
+    for (name, body) in files {
+        let lower = name.to_lowercase();
+        if !lower.ends_with(".txt") && !lower.ends_with(".md") {
+            return Err(format!("{name}: поддерживаются .txt и .md."));
+        }
+        let mut file = whiteroom_core::ai_context::selected_text(&body)
+            .map_err(|_| format!("{name}: нужен непустой текст до 256 КиБ."))?;
+        file.name = name;
+        attachments.push(file);
+    }
+    if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+        attachments.push(whiteroom_core::ai_context::selected_text(&text)?);
+    }
+    json(REVIEW.prepare_for(&open_db()?, session_id, &attachments)?)
+}
+
+#[tauri::command]
+async fn review_drafts(session_id: Option<i64>) -> Res<String> {
+    json(open_db()?.ai_drafts(session_id)?)
+}
+
+#[tauri::command]
+async fn draft_edit(id: i64, edit: whiteroom_core::ai_context::DraftEdit) -> Res<()> {
+    open_db()?.ai_draft_edit(id, &edit)
+}
+
+#[tauri::command]
+async fn draft_reject(id: i64) -> Res<()> {
+    open_db()?.ai_draft_reject(id)
+}
+
+#[tauri::command]
+async fn draft_accept(id: i64) -> Res<String> {
+    open_db()?.ai_draft_accept(id, now())
+}
+
+#[tauri::command]
+async fn item_dispute(item_id: String, note: String) -> Res<()> {
+    open_db()?.ai_item_dispute(&item_id, &note, now())
+}
+
+#[tauri::command]
+async fn self_test_active() -> Res<bool> {
+    open_db()?.self_test_active()
+}
+
+/// Следующий вопрос недельного блока; каждый вызов записывается как показ.
+#[tauri::command]
+async fn test_current() -> Res<String> {
+    json(open_db()?.test_current(now())?)
+}
+
+#[tauri::command]
+async fn test_submit(block: i64, item_id: String, answer: String, ms: i64) -> Res<String> {
+    json(open_db()?.test_submit(block, &item_id, &answer, ms, now())?)
+}
+
+#[tauri::command]
+async fn pilot_text() -> Res<String> {
+    open_db()?.pilot_text(now())
 }
 
 #[tauri::command]
 async fn review_send(preview_id: String) -> Res<String> {
     tauri::async_runtime::spawn_blocking(move || {
-        json(REVIEW.send(&open_db()?, &preview_id, now(), whiteroom_core::tutor::request_claude)?)
+        json(REVIEW.send(
+            &open_db()?,
+            &preview_id,
+            now(),
+            whiteroom_core::tutor::request_claude,
+        )?)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -223,13 +301,17 @@ async fn review_cancel() -> Res<()> {
 #[tauri::command]
 async fn review_queue() -> Res<String> {
     let db = open_db()?;
+    db.help_allowed()?;
     let queue: Vec<_> = db
         .due_reviews(now())?
         .into_iter()
         .map(|item| (item, "review"))
         .chain(db.new_items(8)?.into_iter().map(|item| (item, "new")))
         .chain(db.new_ai_items()?.into_iter().map(|item| (item, "new")))
-        .map(|(item, role)| (item.id, role, item.prompt, item.code, item.hint))
+        .map(|(item, role)| {
+            let claude = item.objective == "ai";
+            (item.id, role, item.prompt, item.code, item.hint, claude)
+        })
         .collect();
     json(queue)
 }
@@ -342,23 +424,33 @@ async fn export_files(id: i64) -> Res<String> {
 }
 
 #[tauri::command]
-async fn site_topics() -> Res<String> {
-    json(open_db()?.site_topics()?)
+async fn blocked_sites() -> Res<String> {
+    json(open_db()?.blocked_sites()?)
 }
 
 #[tauri::command]
-async fn allowed_sites(topic: String) -> Res<String> {
-    json(open_db()?.allowed_sites(&topic)?)
+async fn site_block(domain: String) -> Res<()> {
+    open_db()?.site_block(&domain)
 }
 
 #[tauri::command]
-async fn site_allow(topic: String, domain: String) -> Res<()> {
-    open_db()?.site_allow(&topic, &domain)
+async fn site_unblock(domain: String) -> Res<()> {
+    open_db()?.site_unblock(&domain)
 }
 
 #[tauri::command]
-async fn site_remove(topic: String, domain: String) -> Res<()> {
-    open_db()?.site_remove(&topic, &domain)
+async fn blocked_apps() -> Res<String> {
+    json(open_db()?.blocked_apps()?)
+}
+
+#[tauri::command]
+async fn app_block(name: String) -> Res<()> {
+    open_db()?.app_block(&name)
+}
+
+#[tauri::command]
+async fn app_unblock(name: String) -> Res<()> {
+    open_db()?.app_unblock(&name)
 }
 
 fn main() {
@@ -376,6 +468,15 @@ fn main() {
             setup_save,
             setup_apply,
             review_prepare,
+            review_drafts,
+            draft_edit,
+            draft_reject,
+            draft_accept,
+            item_dispute,
+            self_test_active,
+            test_current,
+            test_submit,
+            pilot_text,
             month_activity,
             review_send,
             review_cancel,
@@ -392,10 +493,12 @@ fn main() {
             next_hint,
             solve,
             export_files,
-            site_topics,
-            allowed_sites,
-            site_allow,
-            site_remove
+            blocked_sites,
+            site_block,
+            site_unblock,
+            blocked_apps,
+            app_block,
+            app_unblock
         ])
         .run(tauri::generate_context!())
         .expect("не удалось запустить WHITE ROOM");

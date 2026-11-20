@@ -1,6 +1,6 @@
 //! Утренний брифинг и панели главного экрана: только то, что уже записано в базе.
 
-use super::{DAY, Db, Item, Res, TEST_DELAY, e};
+use super::{DAY, Db, Item, OPEN_TEST, Res, e};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
@@ -40,13 +40,13 @@ impl Db {
             [],
             |r| r.get(0),
         )?;
-        let tests: Vec<String> = self.list(
-            "SELECT title FROM objective o WHERE done_at IS NOT NULL AND done_at+?1<=?2
-               AND NOT EXISTS (SELECT 1 FROM attempt a JOIN item i ON i.id=a.item_id
-                               WHERE i.objective=o.id AND a.role='test7') ORDER BY id",
-            [TEST_DELAY, now],
-            |r| r.get(0),
-        )?;
+        let mut test_ids: Vec<String> = self.tests_due(now)?.into_iter().map(|it| it.objective).collect();
+        test_ids.sort();
+        test_ids.dedup();
+        let tests: Vec<String> = test_ids
+            .iter()
+            .map(|id| self.c.query_row("SELECT title FROM objective WHERE id=?", [id], |r| r.get(0)).map_err(e))
+            .collect::<Res<_>>()?;
         let (due, soon, week): (i64, i64, i64) = self
             .c
             .query_row(
@@ -80,6 +80,7 @@ impl Db {
             "last": day,
             "notes": notes,
             "plan": {"due": due, "fresh": self.new_items(8)?.len(), "working": working, "tests": tests},
+            "retention_target": 0.9,
             "week": {"minutes": minutes, "days": days},
             "recall": {"answered": answered, "correct": correct},
             "upcoming": {"now": due, "day": soon, "week": week},
@@ -94,10 +95,11 @@ impl Db {
             [start, end],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
+        // Ответы незакрытой недельной проверки не показываются до разбора.
         let (answered, correct): (i64, i64) = self
             .c
             .query_row(
-                "SELECT count(*), coalesce(sum(correct), 0) FROM attempt WHERE ts>=?1 AND ts<?2",
+                &format!("SELECT count(*), coalesce(sum(correct), 0) FROM attempt WHERE ts>=?1 AND ts<?2 AND id NOT IN ({OPEN_TEST})"),
                 [start, end],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
@@ -109,8 +111,8 @@ impl Db {
         )?;
         // Факты — пояснения из карточек, на которые ты отвечал в тот день; иначе из последних повторённых.
         let mut facts = self.items(
-            "SELECT i.data FROM item i WHERE i.id IN (SELECT item_id FROM attempt WHERE ts>=?1 AND ts<?2)
-             ORDER BY i.ord LIMIT 2",
+            &format!("SELECT i.data FROM item i WHERE i.id IN (SELECT item_id FROM attempt WHERE ts>=?1 AND ts<?2 AND id NOT IN ({OPEN_TEST}))
+             ORDER BY i.ord LIMIT 2"),
             params![start, end],
         )?;
         if facts.is_empty() {
@@ -140,7 +142,7 @@ impl Db {
         }))
     }
 
-    fn list<T>(
+    pub(crate) fn list<T>(
         &self,
         sql: &str,
         p: impl rusqlite::Params,

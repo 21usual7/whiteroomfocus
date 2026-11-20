@@ -23,6 +23,7 @@
         <button type="button" aria-controls="tutor" aria-pressed="false">Тьютор</button>
       </nav>
       <button type="button" id="motion" class="motion">Фон: живой</button>
+      <p class="notice" id="help-lock" role="status" hidden></p>
     </header>
     <section id="study" aria-label="Сессия">
       <div class="stage">
@@ -55,36 +56,62 @@
             <p class="eyebrow">Протокол сессии</p>
             <button type="button" id="close-setup">Назад</button>
           </div>
-          <fieldset><legend>Режим фокуса</legend><div id="focus-modes"></div></fieldset>
-          <div class="focus-settings">
-            <label>Направление<select name="direction" required></select></label>
-            <label>Тема сессии<input name="topic" placeholder="По желанию" maxlength="200"></label>
+          <div class="ask"><h3 class="question">Каким будет этот фокус?</h3>
+            <fieldset><legend>Режим фокуса</legend><div id="focus-modes"></div></fieldset></div>
+          <div class="ask"><h3 class="question">В каком направлении ты растёшь сейчас?</h3>
+            <label>Направление<select name="direction" required></select></label></div>
+          <div class="ask"><h3 class="question">Что именно ты хочешь понять или сделать?</h3>
+            <label>Тема сессии<input name="topic" placeholder="Одной фразой" maxlength="200" required></label></div>
+          <div class="ask"><h3 class="question">Сколько времени ты готов отдать?</h3>
             <label>Цель по времени<select id="focus-goal">
               <option value="0">Без лимита</option>
               <option value="25">25 мин</option>
               <option value="50">50 мин</option>
               <option value="90">90 мин</option>
-            </select></label>
-          </div>
-          <fieldset><legend>Запись в этой сессии</legend>
-            <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
-            <label><input id="capture-browser" type="checkbox"> Вкладки и выдержки с учебных сайтов</label>
-          </fieldset>
-          <fieldset><legend>Рабочие столы</legend>
-            <label><input id="apply-setup" type="checkbox" checked> Разложить окна по сетапу направления</label>
-            <button type="button" id="edit-setup" aria-expanded="false" aria-controls="setup-editor">Изменить сетап</button>
-            <div id="setup-editor" hidden>
-              <ol id="setup-rows"></ol>
-              <label><input id="setup-close-others" type="checkbox"> Закрыть остальные окна после открытия</label>
-              <div class="setup-actions">
-                <button type="button" id="setup-add">Добавить окно</button>
-                <button type="button" id="setup-save">Сохранить сетап</button>
-                <button type="button" id="setup-file">Открыть файл</button>
+            </select></label></div>
+          <div class="ask"><h3 class="question">Сколько ты думаешь это займет?</h3>
+            <label>Оценка, мин<input id="focus-estimate" type="number" min="1" max="600" placeholder="Минут" required></label></div>
+          <div class="ask"><h3 class="question">Что можно записывать, чтобы потом разобрать сессию?</h3>
+            <fieldset><legend>Запись в этой сессии</legend>
+              <label><input id="capture-window" type="checkbox"> Окна и их заголовки</label>
+              <label><input id="capture-browser" type="checkbox"> Вкладки и выдержки с учебных сайтов</label>
+            </fieldset></div>
+          <div class="ask"><h3 class="question">Какие приложения закрыть на время сессии?</h3>
+            <p>За 10 секунд до закрытия придёт предупреждение. Список нельзя менять, пока идёт сессия.</p>
+            <ul id="app-list"></ul>
+            <label>Приложение<input id="app-input" placeholder="discord" maxlength="64"></label>
+            <div class="app-add">
+              <button type="button" data-app="telegram">Telegram</button>
+              <button type="button" data-app="discord">Discord</button>
+              <button type="button" id="app-add">Добавить</button>
+            </div></div>
+          <div class="ask"><h3 class="question">Выключить все уведомления на время сессии?</h3>
+            <label><input id="mute-notifications" type="checkbox" checked> Да, режим «не беспокоить» до конца сессии</label>
+            <p>Предупреждения WHITE ROOM всё равно придут. Прежнее состояние вернётся после сессии.</p></div>
+          <div class="ask"><h3 class="question">Подготовить рабочее место?</h3>
+            <fieldset><legend>Рабочие столы</legend>
+              <label><input id="apply-setup" type="checkbox" checked> Разложить окна по сетапу направления</label>
+              <button type="button" id="edit-setup" aria-expanded="false" aria-controls="setup-editor">Изменить сетап</button>
+              <div id="setup-editor" hidden>
+                <ol id="setup-rows"></ol>
+                <label><input id="setup-close-others" type="checkbox"> Закрыть остальные окна после открытия</label>
+                <div class="setup-actions">
+                  <button type="button" id="setup-add">Добавить окно</button>
+                  <button type="button" id="setup-save">Сохранить сетап</button>
+                  <button type="button" id="setup-file">Открыть файл</button>
+                </div>
               </div>
-            </div>
-          </fieldset>
-          <button type="button" id="edit-topic-sites">Разрешённые сайты</button>
-          <button class="primary">Начать сессию</button>
+            </fieldset>
+            <button type="button" id="edit-topic-sites">Заблокированные сайты</button></div>
+          <div class="ask"><h3 class="question">Даёшь слово?</h3>
+            <p id="commit-text"></p>
+            <label class="commit"><input id="commit" type="checkbox" required> Да, я берусь за это и не отвлекаюсь</label></div>
+          <div class="ask-nav">
+            <button type="button" id="ask-back">Назад</button>
+            <span id="ask-dots" aria-hidden="true"></span>
+            <button type="button" id="ask-next" class="primary">Дальше</button>
+            <button id="ask-start" class="primary">Начать сессию</button>
+          </div>
         </form>
         <div id="active-study" hidden>
           <p id="active-focus"></p>
@@ -109,10 +136,17 @@
       <div id="study-summary" hidden>
         <h2>Активность за сессию</h2>
         <pre id="focus-log"></pre>
+        <button type="button" id="self-check" class="primary">Проверить себя: несколько вопросов без подсказок</button>
         <div class="session-review">
+          <details class="review-sources">
+            <summary>Добавить материал к разбору</summary>
+            <label>Выделенный текст<textarea id="review-text" rows="3"></textarea></label>
+            <label>Файлы .txt или .md<input id="review-files" type="file" accept=".txt,.md" multiple></label>
+          </details>
           <button type="button" id="review-session">Разобрать сессию с Claude</button>
           <div id="review-preview"></div>
           <p class="notice" id="review-status" role="status"></p>
+          <div id="review-drafts"></div>
         </div>
         <p>Задача по теме: <code>whiteroom practice pwn|math</code>.</p>
       </div>
@@ -140,6 +174,12 @@
         <p class="dash-detail" id="dash-detail" aria-live="polite"></p>
         <div class="dash-legend" aria-hidden="true">Меньше<span data-level="0"></span><span data-level="1"></span><span data-level="2"></span><span data-level="3"></span><span data-level="4"></span>Больше</div>
       </div>
+      <section class="pilot" aria-labelledby="pilot-heading">
+        <h2 id="pilot-heading">Отчёт пилота</h2>
+        <p id="pilot-legend"></p>
+        <button type="button" id="pilot-show">Показать отчёт</button>
+        <pre id="pilot-text" hidden></pre>
+      </section>
       <p class="notice" id="dash-message" role="status"></p>
     </section>
     <section id="reviews" aria-label="Повторения" hidden>
@@ -157,16 +197,11 @@
       <div id="tutor-page"></div>
     </section>
     <section id="sites" aria-label="Сайты" hidden>
-      <p>Во время сессии Chromium открывает только разрешённые сайты. Google доступен для любой темы.</p>
+      <p>Chromium открывает все сайты. Во время сессии закрыты только домены из этого списка.</p>
       <fieldset id="site-controls">
-        <form id="view-sites">
-          <label>Тема сессии <input id="site-topic" list="site-topics" maxlength="200" required></label>
-          <datalist id="site-topics"></datalist>
-          <button>Показать</button>
-        </form>
         <form id="add-site">
-          <label>Домен <input name="domain" placeholder="docs.example.org" required></label>
-          <button>Разрешить</button>
+          <label>Домен <input name="domain" placeholder="youtube.com" required></label>
+          <button>Заблокировать</button>
         </form>
         <ul id="site-list"></ul>
       </fieldset>

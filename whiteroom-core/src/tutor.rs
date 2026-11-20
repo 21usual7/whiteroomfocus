@@ -235,6 +235,7 @@ fn suggested_concept(mode: Option<&str>, direction: Option<&str>) -> Option<&'st
 }
 
 pub fn context(db: &Db) -> Res<TutorContext> {
+    db.help_allowed()?;
     let tx = db.c.unchecked_transaction().map_err(e)?;
     db.c.execute(PURGE, []).map_err(e)?;
     let scope = Scope::read(db)?;
@@ -448,6 +449,7 @@ impl Tutor {
         question: Option<&str>,
         concept_id: Option<&str>,
     ) -> Res<TutorPreview> {
+        db.help_allowed()?;
         let mut memory = self.lock()?;
         if memory.sending {
             return Err("Дождись ответа на предыдущий запрос.".into());
@@ -501,6 +503,7 @@ impl Tutor {
         session_id: Option<i64>,
         question: &str,
     ) -> Res<TutorPreview> {
+        db.help_allowed()?;
         let mut memory = self.lock()?;
         if memory.sending {
             return Err("Дождись ответа на предыдущий запрос.".into());
@@ -574,6 +577,7 @@ impl Tutor {
         preview_id: &str,
         transport: impl FnOnce(&Value) -> Res<Value>,
     ) -> Res<TutorAnswer> {
+        db.help_allowed()?;
         let (draft, _guard) = {
             let mut memory = self.lock()?;
             if memory.sending {

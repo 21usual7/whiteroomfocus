@@ -1,3 +1,14 @@
+# Learning MVP (D19, docs/prompt-claude-mvp.md)
+
+Acceptance and results, 2026-11-20. Synthetic data, temporary `WHITEROOM_DB`, no paid calls.
+
+- Weekly check: the original bug was reproduced on HEAD 8faafdb (review after one answer, a seen question shown as new, the briefing silent after the first answer). The fix records first exposure before display, resumes after EOF, window close and restart, freezes form and key, reveals keys only after the whole block closes and refuses duplicate answers from a second client. Tests: `weekly_*`, `pilot_report_matches_hand_count`, `review_session_is_refused_while_weekly_block_is_open` in `pilot.rs` (30/30).
+- Pilot report and anonymous export: per-group counts with numerator and denominator, misses, late answers, reshows and actual delay. A hand-counted synthetic sample matches. A hinted answer is not independent and does not enter calibration. FSRS treats a hinted answer as a lapse (`Again`). `Hard` is not set yet because no difficulty signal exists.
+- Claude questions: they go to review drafts first (edit, reject, accept, report an error after adding). Review previews bind to a finished session snapshot. The tutor, hints, keys and the Wayland popup are closed during a self-test block. Tests: `review.rs` 7/7.
+- Real Tauri/WebKitGTK on an isolated Xwayland with a clean database: practice with a hint, a mistake and a retry; weekly check opened from the briefing; window killed after one answer; on reopen the block resumed at 2/3 with focus in the answer field; review only after closing; pilot report on the dashboard matches the CLI; setup editor saved a valid file; D17 preview of explicit text and cancellation staged nothing. Mixed keyboard and pointer at 900×640 and 360×640. `ANTHROPIC_API_KEY` was present in the process environment and no send was pressed.
+- The stubbed-IPC harness covers the Claude fixture cases (empty result, disputed key, edit, reject, resend, cancel, session change) at 360 and 900 px: 41/41 each. These cases were not repeated in the real window because they need a provider response.
+- Browser policy D18: fixtures rewritten for the denylist, 7/7. The temporary-profile Chromium check of the denylist has not been run.
+
 # Tutor chat and Wayland popup
 
 - Tauri/WebKitGTK and the native Wayland popup answered catalog questions with no provider credentials. The Tauri check verified the exact cloud preview and cancellation. The response is covered by a transport fixture and provider model access is verified.

@@ -1,0 +1,211 @@
+# Модуль: разбор синтетических журналов (защита). Все адреса — из документационных диапазонов
+# 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24; журналы выдуманы.
+# role = "practice" — для сессий; role = "test7" — недельная проверка: новые сопоставимые задачи
+# на тот же навык, до проверки не показываются ни в одной группе.
+# kind = "number": ответ — число; kind = "text": без учёта регистра и пробелов.
+# Правка формулировки или ответа → увеличить v.
+
+id = "logs-defense"
+title = "Разбор журналов: вход по SSH и веб-сервер"
+
+[[objective]]
+id = "auth"
+title = "Журнал входа SSH: неудачные попытки, перебор, вход после перебора"
+
+[[objective]]
+id = "web"
+title = "Журнал веб-сервера: коды ответа, сканирование, обход каталогов"
+
+# ───────────── auth ─────────────
+
+[[item]]
+id = "auth-p1"
+objective = "auth"
+role = "practice"
+kind = "number"
+prompt = "Сколько неудачных попыток входа в этом журнале?"
+code = """
+Nov 18 10:01:02 srv sshd[812]: Failed password for root from 203.0.113.7 port 50122 ssh2
+Nov 18 10:01:04 srv sshd[812]: Failed password for root from 203.0.113.7 port 50124 ssh2
+Nov 18 10:01:09 srv sshd[815]: Accepted publickey for anna from 192.0.2.10 port 41000 ssh2
+Nov 18 10:01:11 srv sshd[812]: Failed password for admin from 203.0.113.7 port 50130 ssh2
+"""
+answer = ["3"]
+hint = "Считай строки «Failed password», «Accepted» — успешный вход."
+explain = "Три строки Failed password; Accepted publickey — успешный вход по ключу."
+
+[[item]]
+id = "auth-p2"
+objective = "auth"
+role = "practice"
+kind = "text"
+prompt = "С какого адреса идёт перебор паролей?"
+code = """
+Nov 18 10:30:00 srv sshd[840]: Accepted publickey for anna from 192.0.2.10 port 41200 ssh2
+Nov 18 10:30:05 srv sshd[841]: Failed password for root from 198.51.100.14 port 5001 ssh2
+Nov 18 10:30:06 srv sshd[841]: Failed password for admin from 198.51.100.14 port 5003 ssh2
+Nov 18 10:30:08 srv sshd[841]: Failed password for test from 198.51.100.14 port 5005 ssh2
+"""
+answer = ["198.51.100.14"]
+hint = "Ищи адрес, с которого подряд идут Failed password под разными именами."
+explain = "198.51.100.14 перебирает root, admin, test — типичный подбор учётных записей."
+
+[[item]]
+id = "auth-p3"
+objective = "auth"
+role = "practice"
+kind = "text"
+prompt = "Под какой учётной записью был успешный вход после серии неудач с того же адреса?"
+code = """
+Nov 18 11:20:01 srv sshd[901]: Failed password for invalid user test from 198.51.100.23 port 6001 ssh2
+Nov 18 11:20:03 srv sshd[901]: Failed password for invalid user oracle from 198.51.100.23 port 6003 ssh2
+Nov 18 11:20:06 srv sshd[903]: Accepted password for deploy from 198.51.100.23 port 6010 ssh2
+"""
+answer = ["deploy"]
+hint = "Найди строку Accepted с тем же адресом, что и у неудач."
+explain = "Вход deploy с адреса, который только что перебирал имена, — повод сменить пароль и проверить сессию."
+
+[[item]]
+id = "auth-t1"
+objective = "auth"
+role = "test7"
+kind = "number"
+prompt = "Сколько неудачных попыток входа в этом журнале?"
+code = """
+Nov 19 08:00:01 srv sshd[1201]: Failed password for root from 198.51.100.40 port 40001 ssh2
+Nov 19 08:00:02 srv sshd[1202]: Accepted publickey for ivan from 192.0.2.15 port 52000 ssh2
+Nov 19 08:00:03 srv sshd[1201]: Failed password for root from 198.51.100.40 port 40003 ssh2
+Nov 19 08:00:05 srv sshd[1201]: Failed password for ubuntu from 198.51.100.40 port 40007 ssh2
+Nov 19 08:00:06 srv sshd[1204]: Failed password for ivan from 192.0.2.15 port 52010 ssh2
+"""
+answer = ["4"]
+hint = "Считай все Failed password, с любых адресов."
+explain = "Четыре строки Failed password: три с 198.51.100.40 и одна с 192.0.2.15."
+
+[[item]]
+id = "auth-t2"
+objective = "auth"
+role = "test7"
+kind = "text"
+prompt = "С какого адреса больше всего неудачных попыток?"
+code = """
+Nov 19 09:10:00 srv sshd[1300]: Failed password for admin from 192.0.2.77 port 33001 ssh2
+Nov 19 09:10:01 srv sshd[1301]: Failed password for root from 203.0.113.99 port 61000 ssh2
+Nov 19 09:10:02 srv sshd[1301]: Failed password for root from 203.0.113.99 port 61002 ssh2
+Nov 19 09:10:04 srv sshd[1301]: Failed password for root from 203.0.113.99 port 61006 ssh2
+"""
+answer = ["203.0.113.99"]
+hint = "Сгруппируй Failed password по адресу."
+explain = "203.0.113.99 — три неудачи подряд под root, 192.0.2.77 — одна."
+
+[[item]]
+id = "auth-t3"
+objective = "auth"
+role = "test7"
+kind = "text"
+prompt = "Какая учётная запись, вероятно, скомпрометирована?"
+code = """
+Nov 19 12:00:01 srv sshd[1400]: Accepted publickey for anna from 192.0.2.10 port 41500 ssh2
+Nov 19 12:00:10 srv sshd[1410]: Failed password for backup from 203.0.113.50 port 7001 ssh2
+Nov 19 12:00:12 srv sshd[1410]: Failed password for backup from 203.0.113.50 port 7003 ssh2
+Nov 19 12:00:15 srv sshd[1412]: Accepted password for backup from 203.0.113.50 port 7009 ssh2
+"""
+answer = ["backup"]
+hint = "Успешный вход после неудач с того же адреса."
+explain = "backup вошёл по паролю после двух неудач с того же адреса; anna вошла по ключу с обычного адреса."
+
+# ───────────── web ─────────────
+
+[[item]]
+id = "web-p1"
+objective = "web"
+role = "practice"
+kind = "number"
+prompt = "Сколько запросов закончились ошибкой клиента (коды 4xx)?"
+code = """
+192.0.2.10 - - [18/Nov/2026:10:00:01 +0000] "GET /index.html HTTP/1.1" 200 5120
+192.0.2.10 - - [18/Nov/2026:10:00:02 +0000] "GET /favicon.ico HTTP/1.1" 404 0
+198.51.100.5 - - [18/Nov/2026:10:00:03 +0000] "GET /admin HTTP/1.1" 403 199
+198.51.100.5 - - [18/Nov/2026:10:00:04 +0000] "GET /.env HTTP/1.1" 404 0
+"""
+answer = ["3"]
+hint = "Код ответа — число сразу после кавычек с запросом."
+explain = "404, 403, 404 — три ошибки клиента; 200 — успех."
+
+[[item]]
+id = "web-p2"
+objective = "web"
+role = "practice"
+kind = "text"
+prompt = "С какого адреса сканируют служебные пути?"
+code = """
+192.0.2.33 - - [18/Nov/2026:10:05:00 +0000] "GET /blog/post-1 HTTP/1.1" 200 8000
+203.0.113.8 - - [18/Nov/2026:10:05:01 +0000] "GET /wp-login.php HTTP/1.1" 404 0
+203.0.113.8 - - [18/Nov/2026:10:05:01 +0000] "GET /phpmyadmin/ HTTP/1.1" 404 0
+203.0.113.8 - - [18/Nov/2026:10:05:02 +0000] "GET /.git/config HTTP/1.1" 404 0
+"""
+answer = ["203.0.113.8"]
+hint = "Ищи частые запросы к несуществующим административным путям."
+explain = "203.0.113.8 за секунду пробует /wp-login.php, /phpmyadmin/, /.git/config — автоматический сканер."
+
+[[item]]
+id = "web-p3"
+objective = "web"
+role = "practice"
+kind = "text"
+prompt = "Какой приём атаки виден во второй строке?"
+code = """
+192.0.2.21 - - [18/Nov/2026:10:10:00 +0000] "GET /download?file=report.pdf HTTP/1.1" 200 40211
+192.0.2.21 - - [18/Nov/2026:10:10:03 +0000] "GET /download?file=../../../../etc/passwd HTTP/1.1" 400 0
+"""
+answer = ["обход каталогов", "path traversal", "directory traversal"]
+hint = "Обрати внимание на ../ в параметре."
+explain = "../ поднимается из каталога загрузок к /etc/passwd — обход каталогов; сервер ответил 400."
+
+[[item]]
+id = "web-t1"
+objective = "web"
+role = "test7"
+kind = "number"
+prompt = "Сколько запросов закончились ошибкой клиента (коды 4xx)?"
+code = """
+203.0.113.12 - - [19/Nov/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 3000
+203.0.113.12 - - [19/Nov/2026:09:00:02 +0000] "POST /login HTTP/1.1" 401 120
+203.0.113.12 - - [19/Nov/2026:09:00:03 +0000] "POST /login HTTP/1.1" 401 120
+192.0.2.44 - - [19/Nov/2026:09:00:05 +0000] "GET /missing.png HTTP/1.1" 404 0
+192.0.2.44 - - [19/Nov/2026:09:00:06 +0000] "GET /private/ HTTP/1.1" 403 199
+192.0.2.44 - - [19/Nov/2026:09:00:07 +0000] "GET /api/health HTTP/1.1" 500 52
+"""
+answer = ["4"]
+hint = "500 — ошибка сервера, а не клиента."
+explain = "401, 401, 404, 403 — четыре ошибки клиента; 500 — ошибка сервера, 200 — успех."
+
+[[item]]
+id = "web-t2"
+objective = "web"
+role = "test7"
+kind = "text"
+prompt = "С какого адреса сканируют служебные пути?"
+code = """
+198.51.100.61 - - [19/Nov/2026:09:30:00 +0000] "GET /.env HTTP/1.1" 404 0
+192.0.2.50 - - [19/Nov/2026:09:30:01 +0000] "GET /shop/cart HTTP/1.1" 200 2100
+198.51.100.61 - - [19/Nov/2026:09:30:01 +0000] "GET /backup.zip HTTP/1.1" 404 0
+198.51.100.61 - - [19/Nov/2026:09:30:02 +0000] "GET /server-status HTTP/1.1" 403 199
+"""
+answer = ["198.51.100.61"]
+hint = "Кто запрашивает файлы настроек и архивы, которых нет на сайте?"
+explain = "198.51.100.61 перебирает /.env, /backup.zip, /server-status; 192.0.2.50 — обычный покупатель."
+
+[[item]]
+id = "web-t3"
+objective = "web"
+role = "test7"
+kind = "text"
+prompt = "Какой приём атаки виден во второй строке? (%2f — закодированный «/»)"
+code = """
+192.0.2.70 - - [19/Nov/2026:10:00:00 +0000] "GET /img?name=logo.png HTTP/1.1" 200 1500
+192.0.2.70 - - [19/Nov/2026:10:00:04 +0000] "GET /img?name=..%2f..%2f..%2fetc%2fshadow HTTP/1.1" 400 0
+"""
+answer = ["обход каталогов", "path traversal", "directory traversal"]
+hint = "Раскодируй %2f и посмотри, куда ведёт путь."
+explain = "..%2f — это ../ в URL-кодировке: попытка выйти к /etc/shadow, обход каталогов."

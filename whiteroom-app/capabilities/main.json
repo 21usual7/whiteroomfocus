@@ -19,6 +19,15 @@
     "allow-setup-save",
     "allow-setup-apply",
     "allow-review-prepare",
+    "allow-review-drafts",
+    "allow-draft-edit",
+    "allow-draft-reject",
+    "allow-draft-accept",
+    "allow-item-dispute",
+    "allow-self-test-active",
+    "allow-test-current",
+    "allow-test-submit",
+    "allow-pilot-text",
     "allow-month-activity",
     "allow-review-send",
     "allow-review-cancel",
@@ -32,9 +41,11 @@
     "allow-next-hint",
     "allow-solve",
     "allow-export-files",
-    "allow-site-topics",
-    "allow-allowed-sites",
-    "allow-site-allow",
-    "allow-site-remove"
+    "allow-blocked-sites",
+    "allow-site-block",
+    "allow-site-unblock",
+    "allow-blocked-apps",
+    "allow-app-block",
+    "allow-app-unblock"
   ]
 }

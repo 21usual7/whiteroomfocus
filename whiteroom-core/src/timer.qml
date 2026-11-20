@@ -14,6 +14,7 @@ ShellRoot {
   readonly property real started: Number(Quickshell.env("WHITEROOM_TIMER_STARTED"))
   property string elapsed: "00:00:00"
   property string popupMonitor: ""
+  property bool confirmStop: false
 
   function showPopup(monitor) {
     popupMonitor = monitor || Hyprland.focusedMonitor?.name || Quickshell.screens[0]?.name || "";
@@ -42,6 +43,18 @@ ShellRoot {
     }
   }
 
+  // Второе нажатие «Стоп» в течение 3 секунд заканчивает сессию.
+  Timer {
+    id: confirmReset
+    interval: 3000
+    onTriggered: root.confirmStop = false
+  }
+
+  Process {
+    id: stopper
+    command: [root.cli, "stop"]
+  }
+
   Process {
     command: [root.cli, "timer-watch", root.session]
     running: true
@@ -57,14 +70,14 @@ ShellRoot {
       visible: root.inSession
       anchors { top: true; right: true }
       margins { top: 12; right: 14 }
-      implicitWidth: clock.implicitWidth + trigger.implicitWidth + 32
+      implicitWidth: clock.implicitWidth + stopButton.implicitWidth + trigger.implicitWidth + 41
       implicitHeight: 34
       color: "transparent"
       exclusionMode: ExclusionMode.Normal
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
       WlrLayershell.namespace: "whiteroom-timer"
-      mask: Region { item: trigger }
+      mask: Region { item: stopButton; regions: [Region { item: trigger }] }
 
       Rectangle {
         anchors.fill: parent
@@ -84,6 +97,39 @@ ShellRoot {
             color: "#defbf4"
             font.family: "monospace"
             font.pixelSize: 18
+          }
+
+          Rectangle {
+            id: stopButton
+            Layout.preferredWidth: implicitWidth
+            Layout.preferredHeight: 26
+            implicitWidth: stopLabel.implicitWidth + 16
+            radius: 6
+            color: root.confirmStop ? "#7a3434" : stopMouse.containsMouse ? "#4a3131" : "#2e2424"
+
+            Text {
+              id: stopLabel
+              anchors.centerIn: parent
+              text: root.confirmStop ? "Точно?" : "Стоп"
+              color: "#defbf4"
+              font.pixelSize: 13
+            }
+
+            MouseArea {
+              id: stopMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: {
+                if (root.confirmStop) {
+                  root.confirmStop = false;
+                  stopper.running = true;
+                } else {
+                  root.confirmStop = true;
+                  confirmReset.restart();
+                }
+              }
+            }
           }
 
           Rectangle {
