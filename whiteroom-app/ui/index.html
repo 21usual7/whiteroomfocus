@@ -72,7 +72,16 @@
           </fieldset>
           <fieldset><legend>Рабочие столы</legend>
             <label><input id="apply-setup" type="checkbox" checked> Разложить окна по сетапу направления</label>
-            <button type="button" id="edit-setup">Изменить сетап</button>
+            <button type="button" id="edit-setup" aria-expanded="false" aria-controls="setup-editor">Изменить сетап</button>
+            <div id="setup-editor" hidden>
+              <ol id="setup-rows"></ol>
+              <label><input id="setup-close-others" type="checkbox"> Закрыть остальные окна после открытия</label>
+              <div class="setup-actions">
+                <button type="button" id="setup-add">Добавить окно</button>
+                <button type="button" id="setup-save">Сохранить сетап</button>
+                <button type="button" id="setup-file">Открыть файл</button>
+              </div>
+            </div>
           </fieldset>
           <button type="button" id="edit-topic-sites">Разрешённые сайты</button>
           <button class="primary">Начать сессию</button>

@@ -156,6 +156,16 @@ async fn setup_open(mode: String, direction: String) -> Res<String> {
 }
 
 #[tauri::command]
+async fn setup_get(mode: String, direction: String) -> Res<String> {
+    json(whiteroom_core::setup::load(&mode, &direction)?)
+}
+
+#[tauri::command]
+async fn setup_save(mode: String, direction: String, setup: whiteroom_core::setup::Setup) -> Res<()> {
+    whiteroom_core::setup::save(&mode, &direction, &setup).map(|_| ())
+}
+
+#[tauri::command]
 async fn setup_apply(mode: String, direction: String) -> Res<String> {
     tauri::async_runtime::spawn_blocking(move || {
         whiteroom_core::setup::apply(&mode, &direction, std::process::id())
@@ -362,6 +372,8 @@ fn main() {
             tutor_send,
             tutor_cancel,
             setup_open,
+            setup_get,
+            setup_save,
             setup_apply,
             review_prepare,
             month_activity,

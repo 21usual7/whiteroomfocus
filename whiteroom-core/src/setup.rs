@@ -2,7 +2,7 @@
 //! Конфиг — `~/.config/whiteroom/setups/<режим>/<направление>.toml`, правится вручную.
 
 use crate::Res;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
@@ -38,7 +38,7 @@ close_others = false
 # command = "obsidian"
 "#;
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Setup {
     #[serde(default)]
@@ -47,14 +47,16 @@ pub struct Setup {
     pub window: Vec<Window>,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Window {
     pub workspace: u32,
     pub app: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub urls: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 }
 
@@ -135,6 +137,26 @@ pub fn load(mode: &str, direction: &str) -> Res<Setup> {
     let path = ensure(mode, direction)?;
     let text = std::fs::read_to_string(&path).map_err(|err| err.to_string())?;
     toml::from_str(&text).map_err(|err| format!("Ошибка в {}: {err}", path.display()))
+}
+
+/// Сохраняет сетап из окна WHITE ROOM. Комментарии прежнего файла не сохраняются.
+pub fn save(mode: &str, direction: &str, setup: &Setup) -> Res<PathBuf> {
+    for w in &setup.window {
+        if !(1..=10).contains(&w.workspace) {
+            return Err(format!("Рабочий стол должен быть от 1 до 10, а не {}", w.workspace));
+        }
+        w.command()?;
+    }
+    let path = ensure(mode, direction)?;
+    let text = format!(
+        "# Сетап рабочих столов для «{direction}». Правится в WHITE ROOM или вручную.\n# app: terminal | tmux | browser | notion | webapp | command\n\n{}",
+        toml::to_string(setup).map_err(|err| err.to_string())?
+    );
+    // Через временный файл: оборванная запись не оставит полконфига.
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, text).map_err(|err| err.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|err| err.to_string())?;
+    Ok(path)
 }
 
 fn hyprctl(args: &[&str]) -> Res<String> {
@@ -297,5 +319,18 @@ mod tests {
             "[[window]]\nworkspace = 1\napp = \"terminal\"\ntypo = 1"
         ));
         assert!(path("ctf", "../../etc").is_err());
+
+        let dir = std::env::temp_dir().join(format!("wr-setup-{}", std::process::id()));
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        let (mode, direction) = (crate::focus::MODES[0].id, crate::focus::MODES[0].options[0]);
+        save(mode, direction, &setup).unwrap();
+        assert_eq!(load(mode, direction).unwrap(), setup);
+        let mut wrong = setup;
+        wrong.window[0].workspace = 0;
+        assert!(save(mode, direction, &wrong).is_err());
+        wrong.window[0].workspace = 2;
+        wrong.window[1].app = "vim".into();
+        assert!(save(mode, direction, &wrong).is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

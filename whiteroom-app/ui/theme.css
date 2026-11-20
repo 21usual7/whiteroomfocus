@@ -742,3 +742,16 @@ body:has(#tutor:not([hidden])) main > header { margin-bottom: clamp(.8rem, 2vh, 
 #review-preview:empty, #review-status:empty { display: none; }
 #review-preview { display: grid; gap: .5rem; }
 #review-preview > p { margin: 0; color: var(--muted); font-size: .78rem; }
+
+/* Редактор сетапа рабочих столов */
+#setup-editor:not([hidden]) { display: grid; gap: .6rem; margin-top: .6rem; }
+#setup-rows { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+#setup-rows li { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) minmax(0, 1fr) auto; gap: .4rem; align-items: center; }
+#setup-rows li select, #setup-rows li input { width: 100%; min-width: 0; }
+#setup-rows li input.off { visibility: hidden; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (max-width: 560px) {
+  #setup-rows li { grid-template-columns: 6.5rem minmax(0, 1fr); }
+  #setup-rows li input { grid-column: 1 / -1; }
+  #setup-rows li input.off { display: none; }
+}

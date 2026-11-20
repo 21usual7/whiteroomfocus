@@ -583,10 +583,106 @@ $("review-session").addEventListener("click", async () => {
   }
 });
 
-$("edit-setup").addEventListener("click", () => {
+// Редактор сетапа: ряды «рабочий стол → приложение» вместо ручной правки TOML.
+const SETUP_APPS = [
+  ["terminal", "Терминал"],
+  ["tmux", "Терминал с tmux", "Имя сессии tmux"],
+  ["browser", "Браузер — пустое окно"],
+  ["tabs", "Браузер со вкладками", "Адреса через пробел"],
+  ["notion", "Notion"],
+  ["webapp", "Веб-приложение", "Адрес https://…"],
+  ["command", "Своя команда", "Команда, например obsidian"],
+];
+
+function setupRow(win = { workspace: $("setup-rows").children.length + 1, app: "browser" }) {
+  const row = element("li");
+  const workspace = element("select");
+  for (let n = 1; n <= 10; n++) workspace.append(new Option(`Стол ${n}`, n));
+  workspace.value = String(win.workspace);
+  workspace.setAttribute("aria-label", "Рабочий стол");
+  const app = element("select");
+  for (const [id, title] of SETUP_APPS) app.append(new Option(title, id));
+  app.value = win.app === "browser" && win.urls?.length ? "tabs" : win.app;
+  app.setAttribute("aria-label", "Приложение");
+  const extra = element("input");
+  extra.value = win.session || win.command || (win.urls || []).join(" ");
+  const remove = element("button", "Убрать");
+  remove.type = "button";
+  remove.addEventListener("click", () => {
+    (row.nextElementSibling || row.previousElementSibling)?.querySelector("select")?.focus();
+    row.remove();
+    if (!$("setup-rows").children.length) $("setup-add").focus();
+  });
+  const sync = () => {
+    const hint = SETUP_APPS.find(([id]) => id === app.value)[2];
+    extra.classList.toggle("off", !hint);
+    extra.disabled = !hint;
+    extra.placeholder = hint || "";
+    extra.setAttribute("aria-label", hint || "");
+  };
+  app.addEventListener("change", sync);
+  sync();
+  row.append(workspace, app, extra, remove);
+  $("setup-rows").append(row);
+  return row;
+}
+
+function setupValue() {
+  const window = [...$("setup-rows").children].map(row => {
+    const [workspace, app, extra] = row.querySelectorAll("select, input");
+    const text = extra.value.trim();
+    const win = { workspace: Number(workspace.value), app: app.value === "tabs" ? "browser" : app.value };
+    if (app.value === "tmux" && text) win.session = text;
+    if (app.value === "command") win.command = text;
+    if (app.value === "tabs" || app.value === "webapp") win.urls = text.split(/\s+/).filter(Boolean);
+    return win;
+  });
+  return { close_others: $("setup-close-others").checked, window };
+}
+
+function setupTarget() {
   const form = $("start-study");
+  return { mode: form.elements.mode.value, direction: form.elements.direction.value };
+}
+
+$("edit-setup").addEventListener("click", () => {
+  const editor = $("setup-editor");
+  if (!editor.hidden) {
+    editor.hidden = true;
+    $("edit-setup").setAttribute("aria-expanded", "false");
+    return;
+  }
   run(studyControls, studyMessage, async () => {
-    const path = await invoke("setup_open", { mode: form.elements.mode.value, direction: form.elements.direction.value });
+    const setup = await read("setup_get", setupTarget());
+    $("setup-rows").replaceChildren();
+    setup.window.forEach(setupRow);
+    $("setup-close-others").checked = setup.close_others;
+    editor.hidden = false;
+    $("edit-setup").setAttribute("aria-expanded", "true");
+    ($("setup-rows").querySelector("select") || $("setup-add")).focus();
+  });
+});
+
+// Другое направление — другой файл: старые ряды не должны сохраниться в него.
+$("start-study").addEventListener("change", event => {
+  if (event.target.name !== "mode" && event.target.name !== "direction") return;
+  $("setup-editor").hidden = true;
+  $("edit-setup").setAttribute("aria-expanded", "false");
+});
+
+$("setup-add").addEventListener("click", () => setupRow().querySelectorAll("select")[1].focus());
+
+$("setup-save").addEventListener("click", () => {
+  const { direction } = setupTarget();
+  run(studyControls, studyMessage, async () => {
+    await invoke("setup_save", { ...setupTarget(), setup: setupValue() });
+    studyMessage.textContent = `Сетап «${direction}» сохранён.`;
+  });
+});
+
+$("setup-file").addEventListener("click", () => {
+  run(studyControls, studyMessage, async () => {
+    const path = await invoke("setup_open", setupTarget());
     studyMessage.textContent = `Сетап открыт в редакторе: ${path}`;
   });
 });

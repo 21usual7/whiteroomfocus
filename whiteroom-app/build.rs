@@ -12,6 +12,8 @@ fn main() {
             "study_active",
             "study_start",
             "setup_open",
+            "setup_get",
+            "setup_save",
             "setup_apply",
             "review_prepare",
             "month_activity",
