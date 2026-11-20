@@ -50,6 +50,8 @@
     "allow-today",
     "allow-goals",
     "allow-goal-example",
+    "allow-domains",
+    "allow-goal-from-domain",
     "allow-goal-from-module",
     "allow-goal-update",
     "allow-goal-archive",

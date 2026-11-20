@@ -61,10 +61,52 @@ function startWith(task) {
 }
 let startTask = null;
 
+function openModule(id) {
+  matTask = async () => openEditor(await invoke("module_get", { id }));
+  document.querySelector('nav [aria-controls="materials"]').click();
+}
+let matTask = null;
+
+// Выбор темы — главный вход в учёбу: каждая тема — «дверь» со встроенной траекторией из ядра.
+function themes(domains) {
+  const box = element("ul");
+  box.className = "learn-themes";
+  box.append(...domains.map(d => {
+    const door = button("", () => go(async () => {
+      const id = await read("goal_from_domain", { domain: d.domain });
+      const next = await showPlan(id);
+      if (d.domain === "custom") {
+        const note = element("div");
+        note.className = "learn-note";
+        note.append(element("p", `Это шаблон «${d.title}»: навыки и вопросы в нём — заготовка. Впиши свою тему, навыки и вопросы в «Материалах».`),
+          button("Открыть в «Материалах»", () => openModule(d.module)));
+        learnView.querySelector(".learn-head, h2").after(note);
+      }
+      return next;
+    }));
+    door.className = "learn-door";
+    door.dataset.domain = d.domain;
+    if (d.goals) door.dataset.goals = d.goals;
+    const parts = [["strong", d.label], ["span", d.title, "learn-door-title"], ["span", "", "learn-door-skills"],
+      ...(d.goals ? [["span", d.goals === 1 ? "Цель уже есть" : `Целей: ${d.goals}`, "learn-door-mark"]] : [])]
+      .map(([tag, text, cls]) => Object.assign(element(tag, text), cls ? { className: cls } : {}));
+    parts[2].append(...d.skills.map(s => element("span", s)));
+    door.append(...parts);
+    const row = element("li");
+    row.append(door);
+    return row;
+  }));
+  return box;
+}
+
 // ───── Сегодня ─────
 async function showToday() {
-  const t = await read("today", { offset: -new Date().getTimezoneOffset() * 60 });
-  const nodes = [heading("Сегодня")];
+  const [t, domains] = await Promise.all([read("today", { offset: -new Date().getTimezoneOffset() * 60 }),
+    read("domains").catch(() => [])]);
+  const head = element("div");
+  head.className = "learn-head";
+  head.append(heading("Сегодня"), element("p", new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })));
+  const nodes = [head];
   const spread = t.actions.find(a => a.spread);
   if (t.gap_note || spread) {
     const note = element("div");
@@ -88,13 +130,22 @@ async function showToday() {
     goal: (a) => [button("План блока", () => go(() => showPlan(a.goal))), button("Цель", () => go(() => showGoal(a.goal)))],
   };
   if (t.actions.length) {
-    nodes.push(list(t.actions, (a) => [info(a.title, [a.reason, a.due != null && "срок: " + when(a.due)].filter(Boolean).join(" · ")), actions(...verbs[a.kind](a))]));
+    const todo = list(t.actions, (a) => [info(a.title, [a.reason, a.due != null && "срок: " + when(a.due)].filter(Boolean).join(" · ")), actions(...verbs[a.kind](a))]);
+    todo.classList.add("learn-todo");
+    nodes.push(todo);
   } else if (t.empty) {
-    nodes.push(element("p", "Целей пока нет. Пример «Анализ журналов» встроен в приложение и работает без сети."),
-      actions(button("Начать с примера", () => go(async () => showPlan(await read("goal_example")))),
-        button("Создать цель из модуля", () => document.querySelector('nav [aria-controls="materials"]').click())));
+    nodes.push(element("h3", "Выбери тему"),
+      element("p", "WHITE ROOM соберёт цель, план и первый блок. Темы встроены в приложение и работают без сети."),
+      themes(domains),
+      actions(button("Создать цель из своего модуля", () => document.querySelector('nav [aria-controls="materials"]').click())));
   } else {
     nodes.push(element("p", "На сегодня дел нет. Ниже — когда появятся следующие."));
+  }
+  if (!t.empty && domains.length) {
+    const other = element("details");
+    other.className = "learn-more";
+    other.append(element("summary", "Новая цель: другая тема"), themes(domains));
+    nodes.push(other);
   }
   const goals = t.goals.filter(g => g.archived == null);
   if (goals.length && !t.empty) {
@@ -107,7 +158,7 @@ async function showToday() {
     nodes.push(element("h3", "Дальше"), list(t.upcoming, (u) => [info(u.title, when(u.at, true))]));
   }
   learnView.replaceChildren(...nodes);
-  return learnView.querySelector(".learn-list button, .tutor-actions button");
+  return learnView.querySelector(".learn-todo button, #learn-view > .learn-themes .learn-door, .learn-list button, .tutor-actions button");
 }
 
 // ───── Цель ─────
@@ -302,11 +353,18 @@ async function showBlock(id) {
     button("Мысль на потом", () => ask("Мысль на потом", "", async (text) => { await invoke("block_thought", { id, text }); return "Мысль записана, вернёшься к ней в итоге."; })),
     button("Завершить", () => { work.replaceChildren(...finish(s)); work.querySelector("select").focus(); }));
   const overview = element("details");
-  overview.append(element("summary", "План блока"), list(s.steps, (st) => [info(`${STEP[st.kind]} · ${st.min} мин`, STATUS[st.status])]));
+  overview.open = matchMedia("(min-width: 761px)").matches;
+  overview.append(element("summary", "План блока"), list(s.steps, (st) => {
+    const row = info(`${STEP[st.kind]} · ${st.min} мин`, STATUS[st.status]);
+    row.dataset.status = st.status;
+    return [row];
+  }));
   const step = s.step == null ? null : s.steps[s.step];
   const progress = element("p", step ? `Шаг ${s.step + 1} из ${s.steps.length} · осталось около ${s.minutes_left} мин` : "Все шаги пройдены");
-  progress.className = "eyebrow";
-  learnView.replaceChildren(progress, heading(s.title), overview, work, tools);
+  const head = element("div");
+  head.className = "learn-head";
+  head.append(heading(s.title), progress, overview);
+  learnView.replaceChildren(head, work, tools);
   if (!step) {
     work.replaceChildren(...finish(s));
     return work.querySelector("select");
@@ -390,6 +448,7 @@ function feedback(s, r, work) {
   const next = button("Дальше", () => go(() => showBlock(s.block)));
   const out = [element("p", r.ok ? "✓ Верно" : "✗ Неверно")];
   out[0].className = "learn-verdict";
+  out[0].dataset.ok = r.ok;
   out[0].setAttribute("role", "status");
   if (r.helped) out.push(element("p", "С подсказкой: в самостоятельные ответы не входит."));
   if (r.key != null) out.push(element("p", "Эталон: " + r.key));
@@ -722,7 +781,11 @@ Object.assign(load, {
     return go(task);
   },
   progress: loadProgress,
-  materials: () => matGo(renderModules),
+  materials: () => {
+    const task = matTask ?? renderModules;
+    matTask = null;
+    return matGo(task);
+  },
   seen: () => go(renderSeen, $("seen-view"), $("seen-message")),
 });
 load.start();

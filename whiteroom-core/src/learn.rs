@@ -7,6 +7,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+/// Встроенные траектории по доменам 1.0: работают офлайн без импорта, выбор темы на «Сегодня».
+pub const DOMAINS: [(&str, &str, &str); 6] = [
+    ("cyber", "Кибербезопасность", include_str!("../../modules/log-analysis.toml")),
+    ("math", "Математика", include_str!("../../modules/math-derivatives.toml")),
+    ("code", "Программирование", include_str!("../../modules/code-python.toml")),
+    ("german", "Немецкий", include_str!("../../modules/german-a2.toml")),
+    ("research", "Исследования", include_str!("../../modules/research-sources.toml")),
+    ("custom", "Своя тема", include_str!("../../modules/template.toml")),
+];
+
 /// Оценка длительности шага, минут: по ней план укладывается в длительность блока.
 const MIN_QUESTION: i64 = 2;
 const MIN_REVIEW: i64 = 1;
@@ -189,6 +199,32 @@ impl Db {
                 },
             )?
             .into())
+    }
+
+    /// Темы для выбора цели: встроенные траектории по доменам и число активных целей по каждой.
+    pub fn domains(&self) -> Res<Value> {
+        let mut out = vec![];
+        for (domain, label, src) in DOMAINS {
+            let m = self.domain_module(src)?;
+            let goals: i64 = self
+                .c
+                .query_row("SELECT count(*) FROM goal WHERE module=? AND archived IS NULL", [&m.id], |r| r.get(0))
+                .map_err(e)?;
+            out.push(json!({"domain": domain, "label": label, "module": m.id, "title": m.title,
+                            "skills": m.objective.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), "goals": goals}));
+        }
+        Ok(out.into())
+    }
+
+    /// Цель по теме. Модуль, уже сохранённый в базе, берётся в своей последней редакции — правки не теряются.
+    pub fn goal_from_domain(&self, domain: &str, now: i64) -> Res<i64> {
+        let (_, _, src) = DOMAINS.iter().find(|d| d.0 == domain).ok_or(format!("темы «{domain}» нет"))?;
+        self.goal_create(&self.domain_module(src)?, now)
+    }
+
+    fn domain_module(&self, src: &str) -> Res<Module> {
+        let m = Module::parse(src)?;
+        Ok(self.module_src(&m.id).unwrap_or(m))
     }
 
     /// Последняя сохранённая редакция модуля (JSON для редактора окна).
@@ -1207,7 +1243,7 @@ pub fn today_text(t: &Value, offset: i64) -> String {
         s += &format!("{}\n\n", t["gap_note"].as_str().unwrap_or(""));
     }
     if t["empty"] == true {
-        return s + "Целей пока нет. Начни с примера: whiteroom goal add modules/log-analysis.toml, затем whiteroom learn.\n";
+        return s + "Целей пока нет. Выбери тему: whiteroom goal new (кибербезопасность, математика, программирование, немецкий, исследования, своя), затем whiteroom learn.\n";
     }
     for (k, a) in t["actions"].as_array().into_iter().flatten().enumerate() {
         let word = if a["kind"] == "reviews" { "ждут с" } else { "до" };
@@ -1257,7 +1293,7 @@ pub fn run_block(db: &Db, inp: &mut impl std::io::BufRead, out: &mut impl std::i
         (Some(_), _) => 0,
         (None, Some(g)) => g,
         (None, None) => db.goals()?.as_array().and_then(|a| a.iter().find(|g| g["archived"].is_null())).and_then(|g| g["id"].as_i64())
-            .ok_or("целей нет: whiteroom goal add <модуль.toml>")?,
+            .ok_or("целей нет: whiteroom goal new <тема> или whiteroom goal add <модуль.toml>")?,
     };
     let id = db.block_start(goal, None, now)?;
     let st = db.block_state(id)?;

@@ -11,6 +11,7 @@ use whiteroom_core::{
 const USAGE: &str = "whiteroom — WHITE ROOM
 
   today                     что делать сегодня: продолжить, проверки, повторения, цели
+  goal new [тема]           темы: cyber math code german research custom; с темой — создать цель
   goal add <module.toml>    цель из модуля (без распределения в пилот)
   goal                      список целей
   learn [цель]              учебный блок по плану; продолжает незаконченный
@@ -480,6 +481,13 @@ fn run() -> Res<()> {
         ["--version"] => println!("{}", whiteroom_core::VERSION),
         ["today"] => print!("{}", learn::today_text(&db()?.today(now, local_offset())?, local_offset())),
         ["goal", "add", path] => println!("Цель {} создана. Начать: whiteroom learn", db()?.goal_create(&module(path)?, now)?),
+        ["goal", "new"] => {
+            for d in db()?.domains()?.as_array().into_iter().flatten() {
+                println!("{:<9} {} — {} (целей: {})", d["domain"].as_str().unwrap_or(""), d["label"].as_str().unwrap_or(""),
+                    d["title"].as_str().unwrap_or(""), d["goals"]);
+            }
+        }
+        ["goal", "new", domain] => println!("Цель {} создана. Начать: whiteroom learn", db()?.goal_from_domain(domain, now)?),
         ["goal"] => {
             for g in db()?.goals()?.as_array().into_iter().flatten() {
                 println!("{:>3}  {}  (новых заданий {}{})", g["id"], g["title"].as_str().unwrap_or(""), g["left"],

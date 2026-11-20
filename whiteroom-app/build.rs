@@ -47,6 +47,8 @@ fn main() {
             "today",
             "goals",
             "goal_example",
+            "domains",
+            "goal_from_domain",
             "goal_from_module",
             "goal_update",
             "goal_archive",

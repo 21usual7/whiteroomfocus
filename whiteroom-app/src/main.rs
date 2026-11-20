@@ -460,8 +460,6 @@ async fn app_unblock(name: String) -> Res<()> {
 
 // ── WHITE ROOM 1.0: «Сегодня», цели, учебный блок, прогресс, данные, материалы (whiteroom_core::learn) ──
 
-/// Пример для чистой базы: модуль по анализу журналов встроен в приложение и работает офлайн.
-const EXAMPLE: &str = include_str!("../../modules/log-analysis.toml");
 
 #[tauri::command]
 async fn today(offset: i64) -> Res<String> {
@@ -475,8 +473,18 @@ async fn goals() -> Res<String> {
 
 #[tauri::command]
 async fn goal_example() -> Res<String> {
-    let m = whiteroom_core::Module::parse(EXAMPLE)?;
-    Ok(open_db()?.goal_create(&m, now())?.to_string())
+    Ok(open_db()?.goal_from_domain("cyber", now())?.to_string())
+}
+
+/// Темы для выбора цели (шесть доменов 1.0, встроены в приложение).
+#[tauri::command]
+async fn domains() -> Res<String> {
+    Ok(open_db()?.domains()?.to_string())
+}
+
+#[tauri::command]
+async fn goal_from_domain(domain: String) -> Res<String> {
+    Ok(open_db()?.goal_from_domain(&domain, now())?.to_string())
 }
 
 #[tauri::command]
@@ -750,6 +758,8 @@ fn main() {
             today,
             goals,
             goal_example,
+            domains,
+            goal_from_domain,
             goal_from_module,
             goal_update,
             goal_archive,

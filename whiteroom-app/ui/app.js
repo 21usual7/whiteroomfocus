@@ -236,7 +236,6 @@ setMotion(motion);
 
 // ───── Брифинг и панели: только записанные данные из команды briefing. ─────
 let brief = null;
-let awakeChecked = false;
 
 function plural(n, one, few, many) {
   const mod10 = n % 10, mod100 = n % 100;
@@ -348,15 +347,6 @@ function renderPanels() {
   $("memory").replaceChildren(...memory);
 }
 
-function seenToday() {
-  try {
-    return localStorage.getItem("wr-awake") === new Date().toDateString();
-  } catch {
-    // Без хранилища брифинг не навязываем: его всегда можно открыть кнопкой.
-    return true;
-  }
-}
-
 function chapter(title, ...content) {
   const node = element("section");
   node.className = "chapter";
@@ -430,7 +420,6 @@ function showAwake() {
 function closeAwake() {
   const awake = $("awake");
   if (awake.hidden || awake.classList.contains("leaving")) return;
-  try { localStorage.setItem("wr-awake", new Date().toDateString()); } catch {}
   awake.classList.add("leaving");
   document.querySelector("main").inert = false;
   body.classList.remove("awake");
@@ -560,10 +549,6 @@ function loadStudy() {
         showStudy(await read("study_active"));
         await Promise.all([loadHistory(), loadAtlas(), loadBriefing()]);
         $("reload-study").hidden = true;
-        if (!awakeChecked) {
-          awakeChecked = true;
-          if (!seenToday()) showAwake();
-        }
       })(),
       loadToday(),
     ]);

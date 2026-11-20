@@ -25,6 +25,8 @@
   --room-accent: #1d5bd8;
 
   --sans: "Inter", "Adwaita Sans", "Noto Sans", system-ui, sans-serif;
+  /* Учебная часть: шрифт школьного учебника (Century Schoolbook, в системе — C059). */
+  --book: "C059", "Century Schoolbook", "TeX Gyre Schola", "Noto Serif", serif;
   --mono: "JetBrains Mono", "JetBrainsMono NF", "iA Writer Mono S", "Noto Sans Mono", ui-monospace, monospace;
   --radius: 3px;
   --ease: cubic-bezier(.76, 0, .24, 1);

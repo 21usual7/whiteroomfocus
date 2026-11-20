@@ -427,3 +427,26 @@ fn activity_clear_counts_first_and_removes_only_that_session() {
     }
     assert!(Db::open(&p).unwrap().activity_clear(Some(999), false).is_err());
 }
+
+/// Выбор темы: шесть встроенных доменов на чистой базе, по каждому создаётся цель с планом;
+/// сохранённая правка модуля не затирается встроенной версией.
+#[test]
+fn every_domain_can_be_chosen_on_a_clean_database() {
+    let (_d, p) = tmp();
+    let db = Db::open(&p).unwrap();
+    let list = db.domains().unwrap();
+    let names: Vec<&str> = list.as_array().unwrap().iter().map(|d| d["domain"].as_str().unwrap()).collect();
+    assert_eq!(names, ["cyber", "math", "code", "german", "research", "custom"]);
+    for d in &names {
+        let g = db.goal_from_domain(d, T0).unwrap();
+        assert!(!db.plan_build(g, T0).unwrap().is_empty(), "{d}: пустой план");
+    }
+    assert!(db.domains().unwrap().as_array().unwrap().iter().all(|d| d["goals"] == 1));
+    assert!(db.goal_from_domain("astrology", T0).is_err());
+    let mut m = db.module_src("math-derivatives").unwrap();
+    m.title = "Моя редакция".into();
+    db.module_put(&m, T0).unwrap();
+    assert_eq!(db.domains().unwrap()[1]["title"], "Моя редакция");
+    db.goal_from_domain("math", T0 + 1).unwrap();
+    assert_eq!(db.module_src("math-derivatives").unwrap().title, "Моя редакция", "правка не затёрта");
+}
